@@ -132,3 +132,26 @@ def test_every_verdict_states_its_reason(stream, card, cfg):
         sec = rec["sections"][name]
         assert sec.get("why"), f"{name} gives a verdict with no stated reason"
         assert len(sec["why"]) > 20
+
+
+def _floats(obj, path="record"):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _floats(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from _floats(v, f"{path}[{i}]")
+    elif isinstance(obj, float):
+        yield path, obj
+
+
+def test_no_integral_floats_survive_into_the_hash(stream, card, cfg):
+    """Python writes 12.0 where JavaScript writes 12.
+
+    The record is displayed by a browser that recomputes the hash. If the two
+    languages canonicalise the same value differently, the page has to either
+    trust the record or call it tampered, and both are wrong.
+    """
+    rec = build_record(stream, card, cfg)
+    bad = [(p, v) for p, v in _floats(rec) if float(v).is_integer()]
+    assert not bad, f"integral floats will hash differently in JS: {bad[:5]}"

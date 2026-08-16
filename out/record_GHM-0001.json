@@ -16,7 +16,7 @@
     "id": "M-2",
     "kind": "lead_time",
     "text": "predicts sepsis before clinical onset",
-    "value": 28.0,
+    "value": 28,
     "detail": "median lead time 28 h on vendor dev set"
    },
    {
@@ -51,7 +51,7 @@
   "auroc_tolerance": 0.03,
   "ppv_tolerance_fraction": 0.8,
   "min_share_before_onset": 0.5,
-  "actionable_window_hours": 12.0,
+  "actionable_window_hours": 12,
   "drift_windows": 10,
   "drift_auroc_drop": 0.05,
   "drift_ppv_floor_fraction": 0.5,
@@ -145,7 +145,7 @@
    "sensitivity_any_alert": 0.2531,
    "caught_before_onset": 222,
    "share_of_catches_after_onset": 0.2318,
-   "median_lead_hours_when_early": 45.0,
+   "median_lead_hours_when_early": 45,
    "lead_time_distribution": [
     {
      "bucket": "after onset",
@@ -172,7 +172,7 @@
      "catches": 101
     }
    ],
-   "actionable_window_hours": 12.0,
+   "actionable_window_hours": 12,
    "caught_within_window": 32,
    "share_of_catches_within_window": 0.1107,
    "min_share_before_onset": 0.5,
@@ -403,5 +403,5 @@
   }
  },
  "inputs_sha256": "2b20a60014e9a1c0a2c32c045d724ac636f4f9a810a22f8ed60ed552910f7348",
- "record_sha256": "504582910453ae9580bef233abaea4497e0b89d584bd089ca1b01551b4b3cc13"
+ "record_sha256": "bfa67910e4ee327edff97448af987871d51708ab849422006dd7e6c3924cab3a"
 }

@@ -29,8 +29,26 @@ DEFAULT_LIMITS = [
 ]
 
 
+def stable(obj):
+    """Normalise numbers so the hash does not depend on the language reading it.
+
+    Python writes 12.0 where JavaScript writes 12, and a record whose hash
+    verifies in Python but not in the browser that displays it is not
+    content-addressed in any useful sense. Integral floats become ints once,
+    here, before the bytes are written or hashed.
+    """
+    if isinstance(obj, dict):
+        return {k: stable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [stable(v) for v in obj]
+    if isinstance(obj, float) and obj.is_integer():
+        return int(obj)
+    return obj
+
+
 def canonical(obj) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(stable(obj), sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False)
 
 
 def sha256(s: str | bytes) -> str:
@@ -110,5 +128,6 @@ def build(stream: ScoredStream, card: ModelCard, cfg: Config,
     }
     if inputs_sha256:
         record["inputs_sha256"] = inputs_sha256
+    record = stable(record)
     record["record_sha256"] = sha256(canonical(record))
     return record
