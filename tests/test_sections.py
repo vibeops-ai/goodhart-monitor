@@ -215,3 +215,14 @@ def test_drift_indeterminate_when_too_few_entities(cfg):
     s = validate(pd.DataFrame(rows))
     d = drift(s, tiny_card(), cfg, baseline_auroc=0.6, baseline_ppv=0.3, threshold=0.5)
     assert d["verdict"] == INDETERMINATE
+
+
+def test_timing_ships_the_distribution_not_only_the_median(stream, card, cfg):
+    """A median lead averages a two-day warning with a one-hour one."""
+    t = timing(stream, card, cfg)
+    dist = t["lead_time_distribution"]
+    assert [d["bucket"] for d in dist] == [
+        "after onset", "0-6h", "6-12h", "12-24h", "24-48h", "48h+"]
+    assert sum(d["catches"] for d in dist) == t["caught_at_all"]
+    after = next(d for d in dist if d["bucket"] == "after onset")
+    assert after["catches"] == t["caught_at_all"] - t["caught_before_onset"]

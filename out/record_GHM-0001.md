@@ -3,7 +3,7 @@
 **Subject** · MAKER-1 sepsis early warning 1.0.0  
 **Deployment population** · hospital system B, 20,000 adult ICU stays, hourly scoring  
 **Stream** · 761,995 rows · 20,000 entities · outcome prevalence 0.0141  
-**Record hash** · `77923c53e0ffdf1af6db2ed2718b5836`
+**Record hash** · `504582910453ae9580bef233abaea449`
 
 **Overall · FAILS**. Failing sections: acceptance, work
 
@@ -56,6 +56,15 @@ Card says: **predicts sepsis before clinical onset**
 | median lead when early (h) | 45 |
 | within the 12h actionable window | 32 |
 | …as a share of catches | 0.1107 |
+
+| lead time | catches |
+|---|---:|
+| after onset | 67 |
+| 0-6h | 16 |
+| 6-12h | 16 |
+| 12-24h | 37 |
+| 24-48h | 52 |
+| 48h+ | 101 |
 
 > an alert that fires after onset is case finding, not prediction. Long leads are reported beside the actionable window because a warning two days early is experienced at the bedside as an unexplained alarm, and averaging the two hides that
 
@@ -117,4 +126,4 @@ Carried at the same weight as the findings.
 - hospital B is a held-out system the maker never trained on; this record says nothing about hospital A
 
 ---
-Re-run with the same inputs and this record hashes to `77923c53e0ffdf1af6db2ed2718b5836` again. If it does not, something changed and the difference is the finding.
+Re-run with the same inputs and this record hashes to `504582910453ae9580bef233abaea449` again. If it does not, something changed and the difference is the finding.

@@ -55,6 +55,15 @@ def timing(stream: ScoredStream, card: ModelCard, cfg: Config,
                 "why": "the model alerted on no positive entity at this threshold"}
 
     lead = (caught.onset - caught.first_alert).to_numpy(dtype=float)
+    # A median lead time is the single most misleading number in this category:
+    # it averages a two-day-early alert together with a one-hour-early one and
+    # reports something no clinician experiences. The distribution is what the
+    # committee needs, so it ships on the record rather than in an appendix.
+    edges = [-np.inf, 0.0, 6.0, 12.0, 24.0, 48.0, np.inf]
+    names = ["after onset", "0-6h", "6-12h", "12-24h", "24-48h", "48h+"]
+    hist = [{"bucket": nm,
+             "catches": int(((lead > lo) & (lead <= hi)).sum())}
+            for nm, lo, hi in zip(names, edges[:-1], edges[1:])]
     before = lead > 0
     w = cfg.actionable_window_hours
     in_window = before & (lead <= w)
@@ -83,6 +92,7 @@ def timing(stream: ScoredStream, card: ModelCard, cfg: Config,
         "share_of_catches_after_onset": round(share_after, 4),
         "median_lead_hours_when_early": (round(float(np.median(lead[before])), 1)
                                          if before.any() else None),
+        "lead_time_distribution": hist,
         "actionable_window_hours": w,
         "caught_within_window": int(in_window.sum()),
         "share_of_catches_within_window": round(float(in_window.mean()), 4),

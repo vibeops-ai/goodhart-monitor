@@ -121,6 +121,12 @@ def to_markdown(rec: dict) -> str:
                t.get("caught_within_window")))
         A(_row("…as a share of catches", t.get("share_of_catches_within_window")))
         A("")
+        if t.get("lead_time_distribution"):
+            A("| lead time | catches |")
+            A("|---|---:|")
+            for b in t["lead_time_distribution"]:
+                A(f"| {b['bucket']} | {b['catches']} |")
+            A("")
         A(f"> {t['note']}")
     out.extend(_why(t))
     A("")

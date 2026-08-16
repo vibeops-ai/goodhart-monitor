@@ -146,6 +146,32 @@
    "caught_before_onset": 222,
    "share_of_catches_after_onset": 0.2318,
    "median_lead_hours_when_early": 45.0,
+   "lead_time_distribution": [
+    {
+     "bucket": "after onset",
+     "catches": 67
+    },
+    {
+     "bucket": "0-6h",
+     "catches": 16
+    },
+    {
+     "bucket": "6-12h",
+     "catches": 16
+    },
+    {
+     "bucket": "12-24h",
+     "catches": 37
+    },
+    {
+     "bucket": "24-48h",
+     "catches": 52
+    },
+    {
+     "bucket": "48h+",
+     "catches": 101
+    }
+   ],
    "actionable_window_hours": 12.0,
    "caught_within_window": 32,
    "share_of_catches_within_window": 0.1107,
@@ -377,5 +403,5 @@
   }
  },
  "inputs_sha256": "2b20a60014e9a1c0a2c32c045d724ac636f4f9a810a22f8ed60ed552910f7348",
- "record_sha256": "77923c53e0ffdf1af6db2ed2718b5836a243526df46e894af180d34cb4c00208"
+ "record_sha256": "504582910453ae9580bef233abaea4497e0b89d584bd089ca1b01551b4b3cc13"
 }
