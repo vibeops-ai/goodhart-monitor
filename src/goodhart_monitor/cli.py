@@ -20,6 +20,7 @@ from pathlib import Path
 
 from . import config as cfgmod
 from . import contract, record, render, stats
+from .sweep import sweep as run_sweep
 from .card import CardError, load as load_card
 from .contract import ContractError
 
@@ -90,6 +91,28 @@ def cmd_validate(a: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_sweep(a: argparse.Namespace) -> int:
+    """Every operating point, so a committee can choose one with its eyes open."""
+    try:
+        stream = contract.load(a.stream)
+        card = load_card(a.card)
+        cfg = cfgmod.load(a.config)
+    except (ContractError, CardError, cfgmod.ConfigError) as e:
+        print(f"cannot sweep: {e}", file=sys.stderr)
+        return EXIT_BADINPUT
+
+    sw = run_sweep(stream, card, cfg, n_points=a.points)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"sweep_{cfg.record_id}.json"
+    path.write_text(json.dumps(sw, separators=(",", ":")) + "\n")
+
+    print(f"sweep {cfg.record_id}: {len(sw['points'])} operating points")
+    print(f"  AUROC {sw['auroc']} does not move with the threshold")
+    print(f"  wrote {path.name} ({path.stat().st_size // 1024} KB)")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="goodhart-monitor",
@@ -111,6 +134,14 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--limit", action="append",
                    help="an extra LIMITS line; repeatable")
     v.set_defaults(fn=cmd_verify)
+
+    s_ = sub.add_parser("sweep", help="measure every operating point, state no verdicts")
+    s_.add_argument("--stream", required=True)
+    s_.add_argument("--card", required=True)
+    s_.add_argument("--config", default=None)
+    s_.add_argument("--out", default="out")
+    s_.add_argument("--points", type=int, default=220)
+    s_.set_defaults(fn=cmd_sweep)
 
     c = sub.add_parser("validate", help="check a stream against the input contract")
     c.add_argument("--stream", required=True)

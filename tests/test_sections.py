@@ -226,3 +226,60 @@ def test_timing_ships_the_distribution_not_only_the_median(stream, card, cfg):
     assert sum(d["catches"] for d in dist) == t["caught_at_all"]
     after = next(d for d in dist if d["bucket"] == "after onset")
     assert after["catches"] == t["caught_at_all"] - t["caught_before_onset"]
+
+
+# ---------------------------------------------------------------------- SWEEP
+def test_sweep_agrees_with_the_sections_at_every_threshold(stream, card, cfg):
+    """The sweep is a fast path, and a fast path that disagrees is a second
+    product. At each swept threshold the numbers must equal what the real
+    sections produce at that same threshold."""
+    from goodhart_monitor.sweep import sweep as run_sweep
+
+    sw = run_sweep(stream, card, cfg, n_points=12)
+    assert sw["points"]
+    for pt in sw["points"]:
+        thr = pt["threshold"]
+        w = work(stream, card, cfg, threshold=thr)
+        t = timing(stream, card, cfg, threshold=thr)
+        assert pt["n_alert_rows"] == w["n_alert_rows"], thr
+        if w["row_level_ppv"] is not None:
+            assert abs(pt["row_ppv"] - w["row_level_ppv"]) < 5e-4, thr
+        assert pt["actionable_catches"] == w["actionable_catches"], thr
+        if w["entities_evaluated_per_actionable_catch"] is not None:
+            assert abs(pt["entities_per_actionable_catch"]
+                       - w["entities_evaluated_per_actionable_catch"]) < 0.05, thr
+        if t.get("caught_at_all") is not None:
+            assert pt["caught_at_all"] == t["caught_at_all"], thr
+            assert pt["caught_before_onset"] == t["caught_before_onset"], thr
+
+
+def test_sweep_lead_bins_sum_to_the_early_catches(stream, card, cfg):
+    from goodhart_monitor.sweep import sweep as run_sweep
+    sw = run_sweep(stream, card, cfg, n_points=8)
+    for pt in sw["points"]:
+        total = sum(pt["lead_bins"]) + pt["lead_beyond_last_bin"]
+        assert total == pt["caught_before_onset"]
+
+
+def test_sweep_states_no_verdicts(stream, card, cfg):
+    """Policy belongs to the reader; this artifact carries measurements only."""
+    from goodhart_monitor.sweep import sweep as run_sweep
+    import json
+    sw = run_sweep(stream, card, cfg, n_points=6)
+    blob = json.dumps({k: v for k, v in sw.items() if k != "note"})
+    for word in ("HOLDS", "FAILS", "INDETERMINATE", "verdict"):
+        assert word not in blob
+
+
+def test_sweep_is_monotone_in_alert_volume(stream, card, cfg):
+    from goodhart_monitor.sweep import sweep as run_sweep
+    pts = run_sweep(stream, card, cfg, n_points=20)["points"]
+    vols = [p["n_alert_rows"] for p in pts]
+    assert vols == sorted(vols, reverse=True)
+
+
+def test_sweep_always_contains_the_shipped_threshold(stream, card, cfg):
+    """The reader's actual operating point is not approximated."""
+    from goodhart_monitor.sweep import sweep as run_sweep
+    sw = run_sweep(stream, card, cfg, n_points=10)
+    assert any(abs(p["threshold"] - card.threshold) < 1e-9 for p in sw["points"])
