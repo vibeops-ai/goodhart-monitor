@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-from monitor.features import build_matrix  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from features import build_matrix  # noqa: E402
 
 OUT = ROOT / "out"
 DATA = ROOT / "data"

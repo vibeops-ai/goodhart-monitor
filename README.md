@@ -1,47 +1,105 @@
 # GoodHart Monitor
 
-The checker, built as a product: independent verification records for deployed
-clinical prediction models. This repository contains the first end-to-end
-maker/checker pair, built to open a research pilot on structured-data models.
+Independent verification records for deployed clinical prediction models.
 
-## Why this use case
+The product reads one thing: a **scored stream**. Whatever the model is, the
+hospital already logs a score per patient (or per patient-hour) and eventually
+learns the outcome. That is the whole input. The model stays the vendor's, its
+weights stay wherever they are, and the record is produced from the output the
+hospital already owns.
 
-Two clinical AI leaders told us where to start, on the record:
+    goodhart-monitor verify --stream scores.parquet --card vendor_card.json \
+                            --config governance.toml --out out
 
-- Tignanelli (UMN, chairs a health-system AI oversight committee): structured
-  data is the frictionless entry — "readmission models, things like that...
-  we could do it like tomorrow" — and the drift dashboard with review
-  thresholds is the product "no one on the market" has; his team re-validates
-  ~70+ models by hand quarterly.
-- Singh (UCSD, chief health AI officer): the committee questions are local
-  validation vs the vendor card, the work an alert stream creates (alert
-  volume, PPV, patients-evaluated-per-true-case), and whether qualitative
-  frontline signal matches the dashboard. His Epic sepsis paper is the
-  canonical case: model card implied prediction; local measurement showed
-  case-finding at AUROC 0.63 and 8 patients evaluated per true case.
+Exit code 0 no finding in scope · 1 a section FAILS · 2 something is
+INDETERMINATE · 3 the inputs are not verifiable.
 
-## What is here
+## Why the input is the output stream and not the model
 
-    data/                PhysioNet/CinC 2019 sepsis corpus (fetched, not vendored)
-                         40,336 real ICU stays · two real hospital systems · Open Access
-    scripts/fetch.sh     pulls the corpus
-    scripts/build_matrices.py   psv -> causal per-hour features; A/B firewall by file layout
-    scripts/train_maker.py      MAKER-1: ordinary vendor-grade sepsis model + its model card
-    scripts/run_checker.py      THE PRODUCT: the four-section verification record
-    out/record_GHM-0001.json    the record (content-addressed)
-    PILOT.md             the research-pilot proposal this artifact exists to open
+Tignanelli, on the structured-data path: the scores are already in Epic, so
+there is nothing to negotiate with the vendor. Singh, on what the committee
+actually needs: "come with your own data, and not simply rely on the data
+given to you by the vendor." A checker that needs the vendor's artifact is a
+checker the vendor can decline. This one cannot be declined, because the
+hospital already has everything it consumes.
 
-## The record's contract
+## The input contract
 
-Input: frozen model + its card + (features, adjudicated outcomes) from the
-deployment population. Output: ACCEPTANCE / WORK / TIMING / DRIFT sections,
-HOLDS·FAILS·INDETERMINATE per claim with bootstrap CIs, subgroups, and a
-LIMITS section at the same weight as the findings. No PASS exists. Same
-inputs, same record, byte for byte.
+Three columns are required, and the checker refuses loudly rather than coerce:
 
-## Honesty rails carried over from the rest of the company
+| column | meaning |
+|---|---|
+| `entity_id` | patient, encounter, stay: whatever the alert is about |
+| `score` | what the model emitted, any monotone scale |
+| `label` | the adjudicated outcome, 0/1 |
 
-Real data only; anything constructed (the drift stream's ordering) is labelled
-on the record itself. The maker is deliberately competent, not a straw man,
-and every number on its card is true — the product's argument is that true
-cards still fail locally, which is what Singh found in the wild.
+Two are optional and unlock sections when present:
+
+| column | unlocks |
+|---|---|
+| `t` | TIMING and per-hour alert burden |
+| any other column | SUBGROUPS, if named in the config |
+
+Onset is inferred only when the label varies within an entity. A label that is
+constant per entity is an entity-level outcome (readmission), and TIMING
+returns NOT_APPLICABLE rather than inventing a lead time.
+
+## The record
+
+Five sections, each a question a committee already asks:
+
+| Section | The question |
+|---|---|
+| ACCEPTANCE | does the card's headline number hold on this population? |
+| WORK | what work does the alert stream create, and is that work valuable? |
+| TIMING | does it warn before the event, or notice it afterwards? |
+| DRIFT | windowed performance against explicit review thresholds |
+| SUBGROUPS | where is the number worse, and which dimensions cannot be asked? |
+
+Verdicts are HOLDS / FAILS / INDETERMINATE / NOT_APPLICABLE. **There is no
+PASS.** The good outcome names its scope. LIMITS is carried at the same weight
+as the findings, unverifiable claims are recorded rather than scored, and the
+whole record is content-addressed: same inputs, same bytes, verifiable years
+later by someone who was not in the room.
+
+Every threshold that produces a verdict lives in `governance.toml`, is owned by
+the hospital, and is printed on the record. A reader who disagrees with a
+verdict can disagree with the policy rather than reverse-engineer it.
+
+## Layout
+
+    src/goodhart_monitor/    the product
+      contract.py            the scored-stream contract; refuses rather than coerces
+      card.py                vendor claims, typed
+      config.py              governance thresholds, owned by the hospital
+      stats.py               metrics, cluster bootstrap, verdict boundaries
+      sections/              acceptance · work · timing · drift · subgroups
+      record.py              assemble, canonicalise, hash
+      render.py              the read; JSON stays the artifact
+      cli.py                 verify · validate
+    pilots/physionet_sepsis/ a demonstration, not the product
+    tests/                   84 tests, including the two miscounts that shipped in v0
+
+## The pilot in this repo
+
+`pilots/physionet_sepsis/` builds a maker and checks it, end to end, on real
+data: PhysioNet/CinC 2019, 40,336 real ICU stays across two real hospital
+systems, Open Access. The maker trains on hospital A and ships a model card
+whose every number is true. The checker runs on hospital B, which the maker
+has never seen.
+
+    ./pilots/physionet_sepsis/run.sh
+
+The finding: a card with no false numbers on it still fails locally. That gap
+is the product.
+
+`to_stream.py` is the only step that touches the model, and it is on the pilot
+side of the wall on purpose. A real hospital exports its score log instead; the
+rest of the pipeline does not change.
+
+## Honesty rails
+
+Real data only. Anything constructed is labelled on the record: the PhysioNet
+corpus carries no calendar, so DRIFT returns INDETERMINATE and says exactly
+what the hospital would have to supply to make it answerable, rather than
+dressing between-patient variation up as deterioration.

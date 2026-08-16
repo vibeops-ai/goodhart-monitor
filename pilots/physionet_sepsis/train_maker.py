@@ -27,8 +27,8 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
-from monitor.features import LABEL, feature_columns  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from features import LABEL, feature_columns  # noqa: E402
 
 OUT = ROOT / "out"
 
@@ -95,7 +95,7 @@ def main() -> int:
             {"id": "M-3", "text": f"~{ppv:.0%} of alerts are true at the shipped threshold",
              "value": round(float(ppv), 4), "population": "vendor dev set"},
             {"id": "M-4", "text": "performance generalises to new hospital systems",
-             "value": None, "detail": "asserted, not measured — as is customary"},
+             "value": None, "detail": "asserted, not measured, as is customary"},
         ],
         "shipped_threshold": thr,
         "dev_auprc": round(float(auprc), 4),

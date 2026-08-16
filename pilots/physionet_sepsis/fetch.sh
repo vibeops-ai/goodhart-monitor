@@ -3,7 +3,7 @@
 # 40,336 patients as one .psv per patient, two real hospital systems (A and B).
 # Idempotent: skips files already present and non-empty.
 set -euo pipefail
-cd "$(dirname "$0")/../data"
+cd "$(dirname "$0")/../../data"
 BASE=https://physionet.org/files/challenge-2019/1.0.0/training
 for S in A B; do
   mkdir -p "set$S"

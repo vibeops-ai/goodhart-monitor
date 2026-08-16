@@ -2,175 +2,380 @@
  "record": "GHM-0001",
  "schema": "goodhart.monitor/1",
  "subject": {
-  "model": "MAKER-1 sepsis early warning",
+  "name": "MAKER-1 sepsis early warning",
   "version": "1.0.0",
-  "model_sha256": "61d4708db808d6428480280143f13de90abe941b65ed8b8c7eb408773696b34d"
+  "claims": [
+   {
+    "id": "M-1",
+    "kind": "auroc",
+    "text": "AUROC 0.81 for sepsis prediction",
+    "value": 0.8107,
+    "population": "vendor dev set"
+   },
+   {
+    "id": "M-2",
+    "kind": "lead_time",
+    "text": "predicts sepsis before clinical onset",
+    "value": 28.0,
+    "detail": "median lead time 28 h on vendor dev set"
+   },
+   {
+    "id": "M-3",
+    "kind": "ppv",
+    "text": "~20% of alerts are true at the shipped threshold",
+    "value": 0.2007,
+    "population": "vendor dev set"
+   },
+   {
+    "id": "M-4",
+    "kind": "unverifiable",
+    "text": "performance generalises to new hospital systems",
+    "detail": "asserted, not measured, as is customary"
+   }
+  ],
+  "threshold": 0.235347084447026,
+  "model_sha256": "61d4708db808d6428480280143f13de90abe941b65ed8b8c7eb408773696b34d",
+  "intended_use": "hourly sepsis risk on adult ICU patients",
+  "training_data": "hospital system A (development split held out)"
  },
- "deployment_population": "hospital system B \u00b7 20,000 real ICU stays \u00b7 PhysioNet/CinC 2019 \u00b7 untouched during maker development",
- "inputs_sha256": "adf025e8772655f0a334be5d9d0ff12e983489b859e366abcc9a87d76527ebfd",
+ "deployment_population": "hospital system B, 20,000 adult ICU stays, hourly scoring",
+ "stream": {
+  "rows": 761995,
+  "entities": 20000,
+  "has_time": true,
+  "has_onset": true,
+  "prevalence_rows": 0.014147
+ },
+ "governance_config": {
+  "record_id": "GHM-0001",
+  "auroc_tolerance": 0.03,
+  "ppv_tolerance_fraction": 0.8,
+  "min_share_before_onset": 0.5,
+  "actionable_window_hours": 12.0,
+  "drift_windows": 10,
+  "drift_auroc_drop": 0.05,
+  "drift_ppv_floor_fraction": 0.5,
+  "drift_review_run_for_fail": 2,
+  "bootstrap_n": 400,
+  "bootstrap_seed": 20260815,
+  "min_cell": 50,
+  "subgroups": [
+   {
+    "column": "Age",
+    "bins": [
+     0,
+     50,
+     65,
+     80,
+     200
+    ],
+    "labels": [
+     "<50",
+     "50-64",
+     "65-79",
+     "80+"
+    ]
+   },
+   {
+    "column": "Gender",
+    "values": {
+     "0": "recorded 0",
+     "1": "recorded 1"
+    }
+   }
+  ]
+ },
+ "headline": {
+  "tally": {
+   "FAILS": 2,
+   "HOLDS": 1,
+   "INDETERMINATE": 1
+  },
+  "sections_failing": [
+   "acceptance",
+   "work"
+  ],
+  "overall": "FAILS"
+ },
  "sections": {
   "acceptance": {
    "question": "does the card's headline number hold on this population?",
+   "n_rows": 761995,
+   "n_entities": 20000,
+   "claim_id": "M-1",
    "card_claim": "AUROC 0.81 for sepsis prediction",
+   "card_value": 0.8107,
+   "card_population": "vendor dev set",
    "measured_auroc": 0.7564,
-   "ci95": [
-    0.751,
-    0.7613
+   "ci95_entity_bootstrap": [
+    0.7423,
+    0.7685
    ],
+   "gap_vs_card": 0.0543,
+   "tolerance": 0.03,
    "verdict": "FAILS",
-   "gap": 0.0543,
-   "n_patient_hours": 761995
+   "why": "measured 0.7564 against a floor of 0.7807 (card 0.8107 less 0.03 tolerance), and the interval's upper bound 0.7685 is still below it",
+   "note": "interval is a cluster bootstrap over entities, not rows: hours within one stay are not independent observations"
   },
   "work": {
    "question": "what work does the alert stream create at the shipped threshold?",
+   "claim_id": "M-3",
    "card_claim": "~20% of alerts are true at the shipped threshold",
+   "card_value": 0.2007,
    "threshold": 0.235347084447026,
-   "alerts_per_100_patient_days": 34.4,
-   "share_of_patients_ever_alerted": 0.024,
-   "patient_level_ppv": 0.6021,
-   "hour_level_ppv": 0.1083,
-   "patients_evaluated_per_actionable_catch": 2.2,
-   "sensitivity_patient_level": 0.2531,
+   "n_alert_rows": 10933,
+   "alerts_per_100_entity_days": 34.4,
+   "share_of_entities_ever_alerted": 0.024,
+   "row_level_ppv": 0.1083,
+   "entity_level_ppv": 0.6021,
+   "actionable_catches": 222,
+   "entities_evaluated_per_actionable_catch": 2.2,
+   "sensitivity_actionable": 0.1944,
+   "tolerance_fraction": 0.8,
    "verdict": "FAILS",
-   "note": "patients-evaluated-per-actionable-catch is Singh's number (Michigan Epic: 8), counted honestly: only a first alert BEFORE onset is a catch. Read it with the sensitivity beside it \u2014 a threshold can buy a flattering ratio by refusing to alert at all, and the card never mentions that trade"
+   "why": "alert precision 0.1083 against a floor of 0.1606 (0.8 of the card's 0.2007). Staffing consequence: 2.2 entities evaluated per actionable catch, at 19.4% sensitivity.",
+   "note": "entities-evaluated-per-actionable-catch is Singh's number (Michigan's Epic sepsis model needed 8). Only a first alert before onset counts as a catch. Read it beside the sensitivity: a threshold can buy a flattering ratio by refusing to alert, and no card mentions that trade"
   },
   "timing": {
-   "question": "does it warn before onset, or notice afterwards?",
+   "question": "does it warn before the event, or notice it afterwards?",
    "card_claim": "predicts sepsis before clinical onset",
-   "septic_patients": 1142,
+   "claim_id": "M-2",
+   "positives": 1142,
    "caught_at_all": 289,
-   "sensitivity_patient_level": 0.2531,
+   "sensitivity_any_alert": 0.2531,
    "caught_before_onset": 222,
    "share_of_catches_after_onset": 0.2318,
    "median_lead_hours_when_early": 45.0,
-   "caught_in_actionable_window_0_to_12h": 32,
-   "lead_note": "very long leads are early-stay alerts on patients who sepse much later; they count for the claim but a bedside team experiences them as unexplained alarms, so the 12-hour window is reported beside them",
+   "actionable_window_hours": 12.0,
+   "caught_within_window": 32,
+   "share_of_catches_within_window": 0.1107,
+   "min_share_before_onset": 0.5,
    "verdict": "HOLDS",
-   "note": "label already sits ~6h before onset, so 'after onset' here means the model fired after even the early-shifted label window opened \u2014 case finding, not prediction. This is the claim class the Epic sepsis card got wrong."
+   "why": "222 of 289 catches (76.8%) preceded onset, against a policy floor of 50%. Separately, 32 (11.1%) landed inside the 12h actionable window; the rest were early enough that the bedside may not connect the alert to the deterioration",
+   "note": "an alert that fires after onset is case finding, not prediction. Long leads are reported beside the actionable window because a warning two days early is experienced at the bedside as an unexplained alarm, and averaging the two hides that"
   },
   "drift": {
    "question": "windowed performance against explicit review thresholds",
-   "baseline": "local acceptance measurement, not the vendor card",
+   "baseline": "local acceptance measurement, never the vendor card",
    "thresholds": {
     "auroc_drop_from_local_baseline": 0.05,
     "ppv_floor_fraction_of_local": 0.5
    },
+   "baseline_auroc": 0.7564,
+   "baseline_row_ppv": 0.1083,
+   "ordering": "constructed from sorted entity id; the stream carries no calendar",
    "windows": [
     {
      "window": 1,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 76725,
      "auroc": 0.76,
-     "hour_ppv": 0.0872,
+     "row_ppv": 0.0872,
      "alerts": 1491,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 2,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 73871,
      "auroc": 0.6996,
-     "hour_ppv": 0.1066,
+     "row_ppv": 0.1066,
      "alerts": 788,
-     "review": true
+     "review": true,
+     "review_reasons": [
+      "auroc"
+     ],
+     "underpowered": false
     },
     {
      "window": 3,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 76885,
      "auroc": 0.772,
-     "hour_ppv": 0.1295,
+     "row_ppv": 0.1295,
      "alerts": 896,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 4,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 76299,
      "auroc": 0.748,
-     "hour_ppv": 0.102,
+     "row_ppv": 0.102,
      "alerts": 1088,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 5,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 74637,
      "auroc": 0.7599,
-     "hour_ppv": 0.1159,
+     "row_ppv": 0.1159,
      "alerts": 1018,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 6,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 77724,
      "auroc": 0.7365,
-     "hour_ppv": 0.078,
+     "row_ppv": 0.078,
      "alerts": 1180,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 7,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 77456,
      "auroc": 0.7702,
-     "hour_ppv": 0.1009,
+     "row_ppv": 0.1009,
      "alerts": 1408,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 8,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 74710,
      "auroc": 0.7851,
-     "hour_ppv": 0.1077,
+     "row_ppv": 0.1077,
      "alerts": 854,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 9,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 75948,
      "auroc": 0.7659,
-     "hour_ppv": 0.1104,
+     "row_ppv": 0.1104,
      "alerts": 1123,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     },
     {
      "window": 10,
-     "patients": 2000,
+     "entities": 2000,
+     "rows": 77740,
      "auroc": 0.7635,
-     "hour_ppv": 0.161,
+     "row_ppv": 0.161,
      "alerts": 1087,
-     "review": false
+     "review": false,
+     "review_reasons": [],
+     "underpowered": false
     }
    ],
    "windows_triggering_review": 1,
-   "provenance": "stream order constructed from corpus; machinery identical for calendar streams"
+   "longest_consecutive_run": 1,
+   "latest_window_triggers_review": false,
+   "run_length_for_verdict": 2,
+   "auroc_spread": 0.0855,
+   "verdict": "INDETERMINATE",
+   "why": "drift is a claim about time and this stream carries none. The windows above are cut from sorted entity ids, so the spread between them measures sampling variation between arbitrary groups of patients, not deterioration. To make this section answerable, supply the stream in calendar order and pass --ordered",
+   "note": "reported as an instrument check: it shows the review thresholds computing against a local baseline, on real scores, and says nothing about this deployment over time"
+  },
+  "subgroups": {
+   "question": "where is the number worse, and which dimensions cannot be asked?",
+   "groups": [
+    {
+     "dimension": "Age",
+     "group": "50-64",
+     "n_rows": 236414,
+     "n_entities": 6278,
+     "prevalence": 0.014,
+     "auroc": 0.7491,
+     "underpowered": false
+    },
+    {
+     "dimension": "Age",
+     "group": "65-79",
+     "n_rows": 258942,
+     "n_entities": 6582,
+     "prevalence": 0.0141,
+     "auroc": 0.7754,
+     "underpowered": false
+    },
+    {
+     "dimension": "Age",
+     "group": "80+",
+     "n_rows": 88428,
+     "n_entities": 2322,
+     "prevalence": 0.0137,
+     "auroc": 0.7852,
+     "underpowered": false
+    },
+    {
+     "dimension": "Age",
+     "group": "<50",
+     "n_rows": 178211,
+     "n_entities": 4818,
+     "prevalence": 0.0146,
+     "auroc": 0.7292,
+     "underpowered": false
+    },
+    {
+     "dimension": "Gender",
+     "group": "recorded 0",
+     "n_rows": 350416,
+     "n_entities": 9268,
+     "prevalence": 0.0133,
+     "auroc": 0.7634,
+     "underpowered": false
+    },
+    {
+     "dimension": "Gender",
+     "group": "recorded 1",
+     "n_rows": 411579,
+     "n_entities": 10732,
+     "prevalence": 0.0149,
+     "auroc": 0.75,
+     "underpowered": false
+    }
+   ],
+   "auroc_spread_across_groups": 0.056,
+   "configured_columns_absent_from_stream": [],
+   "dimensions_the_stream_cannot_answer": [
+    "race",
+    "language",
+    "insurance"
+   ],
+   "note": "a dimension the stream does not carry is a finding, not a blank. If race, language or payer are absent, nobody can answer the equity question about this deployment, the vendor included"
+  },
+  "unverifiable_claims": {
+   "question": "what does the card assert that cannot be tested?",
+   "claims": [
+    {
+     "id": "M-4",
+     "kind": "unverifiable",
+     "text": "performance generalises to new hospital systems",
+     "detail": "asserted, not measured, as is customary"
+    }
+   ],
+   "note": "recorded, never scored. A claim with no number attached is not evidence, and its presence on a card is itself something the committee should weigh"
   },
   "limits": {
    "same_weight_as_findings": true,
    "items": [
-    "outcome labels are the challenge's Sepsis-3 adjudication, not a chart review by this hospital's clinicians",
-    "hospital B here is a real second health system, but the maker and checker were built by the same company for this pilot artifact; in production the maker is the vendor's and we never train it",
-    "no calendar timestamps exist in the corpus, so DRIFT demonstrates the machinery on a constructed stream and is labelled accordingly",
-    "subgroup coverage below is age and sex only; the corpus carries no race or language fields at all, which is itself a finding about vendor data"
+    "outcome labels are whatever the supplied stream calls adjudicated; the checker does not re-adjudicate them and cannot detect a mislabelled outcome",
+    "verification covers the population, threshold and window in this stream. It says nothing about any other population, threshold or window",
+    "no PASS verdict exists. NO finding within scope is not the same claim as safe",
+    "hospital B is a held-out system the maker never trained on; this record says nothing about hospital A"
    ]
-  },
-  "subgroups": [
-   {
-    "group": "age<65",
-    "n_hours": 414625,
-    "auroc": 0.74
-   },
-   {
-    "group": "age>=65",
-    "n_hours": 347370,
-    "auroc": 0.7779
-   },
-   {
-    "group": "female",
-    "n_hours": 350416,
-    "auroc": 0.7634
-   },
-   {
-    "group": "male",
-    "n_hours": 411579,
-    "auroc": 0.75
-   }
-  ]
+  }
  },
- "record_sha256": "64dda3247f8885f74f827c1dd935c14bddd2498e265801bdc5aa63763b756bb7"
+ "inputs_sha256": "2b20a60014e9a1c0a2c32c045d724ac636f4f9a810a22f8ed60ed552910f7348",
+ "record_sha256": "77923c53e0ffdf1af6db2ed2718b5836a243526df46e894af180d34cb4c00208"
 }

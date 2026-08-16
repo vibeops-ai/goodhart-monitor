@@ -1,0 +1,59 @@
+# Governance thresholds for the sepsis pilot.
+#
+# These are policy, not physics. The committee owns every number in this file,
+# the record prints them verbatim, and a reader who disagrees with a verdict can
+# disagree with the threshold that produced it instead of guessing at it.
+#
+# Sources for the defaults chosen here:
+#   drift.auroc_drop  Tignanelli, on what should trigger a review: a 5%
+#                     deterioration in the AUROC.
+#   work.*            Singh, on alert burden: count patients evaluated per true
+#                     case rather than asserting a PPV. Epic's sepsis model
+#                     needed 8. Anything the hospital will not staff is a FAIL
+#                     regardless of how good the discrimination looks.
+
+[record]
+id = "GHM-0001"
+
+[acceptance]
+# how far below the card's AUROC still counts as the claim holding
+auroc_tolerance = 0.03
+
+[work]
+# measured PPV must reach this fraction of the card's claim
+ppv_tolerance_fraction = 0.8
+
+[timing]
+# share of catches that must land before onset for "predicts" to hold. Below
+# this the product is case finding, which is a different clinical service.
+min_share_before_onset = 0.5
+# a warning is only actionable if it leaves time to act; 12 h is the pilot's
+# assumption for a sepsis bundle and should be set by the ICU, not by us
+actionable_window_hours = 12.0
+
+[drift]
+windows = 10
+auroc_drop = 0.05
+# PPV inside a window may not fall below half the local baseline
+ppv_floor_fraction = 0.5
+
+[bootstrap]
+# intervals resample patients, never rows: 38 hours from one patient are not
+# 38 independent observations
+n = 400
+seed = 20260815
+
+[limits]
+# below this cell size a metric is INDETERMINATE rather than a number
+min_cell = 50
+
+[[subgroups]]
+column = "Age"
+bins = [0, 50, 65, 80, 200]
+labels = ["<50", "50-64", "65-79", "80+"]
+
+[[subgroups]]
+column = "Gender"
+# PhysioNet ships this as 0/1 with no dictionary; the record says so rather
+# than guessing which is which
+values = { "0" = "recorded 0", "1" = "recorded 1" }
