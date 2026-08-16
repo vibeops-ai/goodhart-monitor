@@ -125,7 +125,12 @@ def main() -> int:
     n_pat = len(pl)
     alerted = pl[pl.alerted]
     true_alerted = alerted[alerted.septic]
+    # an actionable catch fires BEFORE onset; an alert on a patient who is
+    # already septic is created work wearing a catch's badge
+    actionable = alerted[alerted.septic & (alerted.first_alert < alerted.onset)]
     ppv_patient = len(true_alerted) / len(alerted) if len(alerted) else 0.0
+    nne_actionable = round(len(alerted) / len(actionable), 1) if len(actionable) else None
+    septic_total = int(pl.septic.sum())
     total_days = pl["hours"].sum() / 24.0
     hour_mask = p >= thr
     hour_ppv = float(y[hour_mask].mean()) if hour_mask.sum() else 0.0
@@ -137,11 +142,14 @@ def main() -> int:
         "share_of_patients_ever_alerted": round(len(alerted) / n_pat, 4),
         "patient_level_ppv": round(ppv_patient, 4),
         "hour_level_ppv": round(hour_ppv, 4),
-        "patients_evaluated_per_true_case": round(1 / ppv_patient, 1) if ppv_patient else None,
+        "patients_evaluated_per_actionable_catch": nne_actionable,
+        "sensitivity_patient_level": round(len(true_alerted) / septic_total, 4) if septic_total else None,
         "verdict": HOLDS if hour_ppv >= claims["M-3"]["value"] * 0.8
         else FAILS,
-        "note": "patients-evaluated-per-true-case is Singh's number: at Michigan the "
-                "Epic model needed 8; every alert beyond the true one is created work",
+        "note": "patients-evaluated-per-actionable-catch is Singh's number (Michigan Epic: 8), "
+                "counted honestly: only a first alert BEFORE onset is a catch. Read it with "
+                "the sensitivity beside it — a threshold can buy a flattering ratio by "
+                "refusing to alert at all, and the card never mentions that trade",
     }
 
     # ---------------------------------------------------------------- TIMING
@@ -158,6 +166,10 @@ def main() -> int:
         "caught_before_onset": int(len(before)),
         "share_of_catches_after_onset": round(1 - len(before) / len(caught), 4) if len(caught) else None,
         "median_lead_hours_when_early": round(float(np.median(lead[lead > 0])), 1) if (lead > 0).any() else 0.0,
+        "caught_in_actionable_window_0_to_12h": int(((lead > 0) & (lead <= 12)).sum()),
+        "lead_note": "very long leads are early-stay alerts on patients who sepse much "
+                     "later; they count for the claim but a bedside team experiences them "
+                     "as unexplained alarms, so the 12-hour window is reported beside them",
         "verdict": HOLDS if len(caught) and (len(before) / len(caught)) >= 0.5 else FAILS,
         "note": "label already sits ~6h before onset, so 'after onset' here means the model "
                 "fired after even the early-shifted label window opened — case finding, "
@@ -168,6 +180,7 @@ def main() -> int:
     # The deployment stream, in admission batches. Order within the corpus is
     # constructed (the corpus carries no calendar), and the record says so; the
     # monitoring machinery is identical for a calendar stream.
+    hour_ppv_local = sections["work"]["hour_level_ppv"]
     pids = sorted(pl.patient.tolist())
     k = 10
     windows = []
@@ -182,14 +195,18 @@ def main() -> int:
             "window": i + 1, "patients": len(wp),
             "auroc": round(w_auroc, 4), "hour_ppv": round(w_ppv, 4),
             "alerts": int(wm.sum()),
-            "review": bool(w_auroc < card_auroc - DRIFT_AUROC_DROP
-                           or w_ppv < claims["M-3"]["value"] * DRIFT_PPV_FLOOR_FRAC),
+            # movement is measured against the LOCAL acceptance baseline; the
+            # card gap is acceptance's finding, and re-firing it every window
+            # would dress a constant up as a trend
+            "review": bool(w_auroc < auroc - DRIFT_AUROC_DROP
+                           or w_ppv < hour_ppv_local * DRIFT_PPV_FLOOR_FRAC),
         })
     sections["drift"] = {
         "question": "windowed performance against explicit review thresholds",
+        "baseline": "local acceptance measurement, not the vendor card",
         "thresholds": {
-            "auroc_drop_from_card": DRIFT_AUROC_DROP,
-            "ppv_floor_fraction_of_card": DRIFT_PPV_FLOOR_FRAC,
+            "auroc_drop_from_local_baseline": DRIFT_AUROC_DROP,
+            "ppv_floor_fraction_of_local": DRIFT_PPV_FLOOR_FRAC,
         },
         "windows": windows,
         "windows_triggering_review": sum(w["review"] for w in windows),
@@ -245,7 +262,7 @@ def main() -> int:
     print(f"  measured AUROC on B: {sections['acceptance']['measured_auroc']} "
           f"(card said {card_auroc})")
     print(f"  work: {sections['work']['alerts_per_100_patient_days']} alerts/100pt-days, "
-          f"NNE {sections['work']['patients_evaluated_per_true_case']}")
+          f"NNE {sections['work']['patients_evaluated_per_actionable_catch']} at sensitivity {sections['work']['sensitivity_patient_level']:.0%}")
     print(f"  timing: {sections['timing']['share_of_catches_after_onset']:.0%} of catches after onset")
     return 0
 

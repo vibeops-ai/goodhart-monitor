@@ -1,0 +1,176 @@
+{
+ "record": "GHM-0001",
+ "schema": "goodhart.monitor/1",
+ "subject": {
+  "model": "MAKER-1 sepsis early warning",
+  "version": "1.0.0",
+  "model_sha256": "61d4708db808d6428480280143f13de90abe941b65ed8b8c7eb408773696b34d"
+ },
+ "deployment_population": "hospital system B \u00b7 20,000 real ICU stays \u00b7 PhysioNet/CinC 2019 \u00b7 untouched during maker development",
+ "inputs_sha256": "adf025e8772655f0a334be5d9d0ff12e983489b859e366abcc9a87d76527ebfd",
+ "sections": {
+  "acceptance": {
+   "question": "does the card's headline number hold on this population?",
+   "card_claim": "AUROC 0.81 for sepsis prediction",
+   "measured_auroc": 0.7564,
+   "ci95": [
+    0.751,
+    0.7613
+   ],
+   "verdict": "FAILS",
+   "gap": 0.0543,
+   "n_patient_hours": 761995
+  },
+  "work": {
+   "question": "what work does the alert stream create at the shipped threshold?",
+   "card_claim": "~20% of alerts are true at the shipped threshold",
+   "threshold": 0.235347084447026,
+   "alerts_per_100_patient_days": 34.4,
+   "share_of_patients_ever_alerted": 0.024,
+   "patient_level_ppv": 0.6021,
+   "hour_level_ppv": 0.1083,
+   "patients_evaluated_per_actionable_catch": 2.2,
+   "sensitivity_patient_level": 0.2531,
+   "verdict": "FAILS",
+   "note": "patients-evaluated-per-actionable-catch is Singh's number (Michigan Epic: 8), counted honestly: only a first alert BEFORE onset is a catch. Read it with the sensitivity beside it \u2014 a threshold can buy a flattering ratio by refusing to alert at all, and the card never mentions that trade"
+  },
+  "timing": {
+   "question": "does it warn before onset, or notice afterwards?",
+   "card_claim": "predicts sepsis before clinical onset",
+   "septic_patients": 1142,
+   "caught_at_all": 289,
+   "sensitivity_patient_level": 0.2531,
+   "caught_before_onset": 222,
+   "share_of_catches_after_onset": 0.2318,
+   "median_lead_hours_when_early": 45.0,
+   "caught_in_actionable_window_0_to_12h": 32,
+   "lead_note": "very long leads are early-stay alerts on patients who sepse much later; they count for the claim but a bedside team experiences them as unexplained alarms, so the 12-hour window is reported beside them",
+   "verdict": "HOLDS",
+   "note": "label already sits ~6h before onset, so 'after onset' here means the model fired after even the early-shifted label window opened \u2014 case finding, not prediction. This is the claim class the Epic sepsis card got wrong."
+  },
+  "drift": {
+   "question": "windowed performance against explicit review thresholds",
+   "baseline": "local acceptance measurement, not the vendor card",
+   "thresholds": {
+    "auroc_drop_from_local_baseline": 0.05,
+    "ppv_floor_fraction_of_local": 0.5
+   },
+   "windows": [
+    {
+     "window": 1,
+     "patients": 2000,
+     "auroc": 0.76,
+     "hour_ppv": 0.0872,
+     "alerts": 1491,
+     "review": false
+    },
+    {
+     "window": 2,
+     "patients": 2000,
+     "auroc": 0.6996,
+     "hour_ppv": 0.1066,
+     "alerts": 788,
+     "review": true
+    },
+    {
+     "window": 3,
+     "patients": 2000,
+     "auroc": 0.772,
+     "hour_ppv": 0.1295,
+     "alerts": 896,
+     "review": false
+    },
+    {
+     "window": 4,
+     "patients": 2000,
+     "auroc": 0.748,
+     "hour_ppv": 0.102,
+     "alerts": 1088,
+     "review": false
+    },
+    {
+     "window": 5,
+     "patients": 2000,
+     "auroc": 0.7599,
+     "hour_ppv": 0.1159,
+     "alerts": 1018,
+     "review": false
+    },
+    {
+     "window": 6,
+     "patients": 2000,
+     "auroc": 0.7365,
+     "hour_ppv": 0.078,
+     "alerts": 1180,
+     "review": false
+    },
+    {
+     "window": 7,
+     "patients": 2000,
+     "auroc": 0.7702,
+     "hour_ppv": 0.1009,
+     "alerts": 1408,
+     "review": false
+    },
+    {
+     "window": 8,
+     "patients": 2000,
+     "auroc": 0.7851,
+     "hour_ppv": 0.1077,
+     "alerts": 854,
+     "review": false
+    },
+    {
+     "window": 9,
+     "patients": 2000,
+     "auroc": 0.7659,
+     "hour_ppv": 0.1104,
+     "alerts": 1123,
+     "review": false
+    },
+    {
+     "window": 10,
+     "patients": 2000,
+     "auroc": 0.7635,
+     "hour_ppv": 0.161,
+     "alerts": 1087,
+     "review": false
+    }
+   ],
+   "windows_triggering_review": 1,
+   "provenance": "stream order constructed from corpus; machinery identical for calendar streams"
+  },
+  "limits": {
+   "same_weight_as_findings": true,
+   "items": [
+    "outcome labels are the challenge's Sepsis-3 adjudication, not a chart review by this hospital's clinicians",
+    "hospital B here is a real second health system, but the maker and checker were built by the same company for this pilot artifact; in production the maker is the vendor's and we never train it",
+    "no calendar timestamps exist in the corpus, so DRIFT demonstrates the machinery on a constructed stream and is labelled accordingly",
+    "subgroup coverage below is age and sex only; the corpus carries no race or language fields at all, which is itself a finding about vendor data"
+   ]
+  },
+  "subgroups": [
+   {
+    "group": "age<65",
+    "n_hours": 414625,
+    "auroc": 0.74
+   },
+   {
+    "group": "age>=65",
+    "n_hours": 347370,
+    "auroc": 0.7779
+   },
+   {
+    "group": "female",
+    "n_hours": 350416,
+    "auroc": 0.7634
+   },
+   {
+    "group": "male",
+    "n_hours": 411579,
+    "auroc": 0.75
+   }
+  ]
+ },
+ "record_sha256": "64dda3247f8885f74f827c1dd935c14bddd2498e265801bdc5aa63763b756bb7"
+}

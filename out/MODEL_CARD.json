@@ -1,0 +1,35 @@
+{
+ "name": "MAKER-1 sepsis early warning",
+ "version": "1.0.0",
+ "model_sha256": "61d4708db808d6428480280143f13de90abe941b65ed8b8c7eb408773696b34d",
+ "intended_use": "hourly sepsis risk on adult ICU patients",
+ "training_data": "hospital system A (development split held out)",
+ "claims": [
+  {
+   "id": "M-1",
+   "text": "AUROC 0.81 for sepsis prediction",
+   "value": 0.8107,
+   "population": "vendor dev set"
+  },
+  {
+   "id": "M-2",
+   "text": "predicts sepsis before clinical onset",
+   "value": 28.0,
+   "detail": "median lead time 28 h on vendor dev set"
+  },
+  {
+   "id": "M-3",
+   "text": "~20% of alerts are true at the shipped threshold",
+   "value": 0.2007,
+   "population": "vendor dev set"
+  },
+  {
+   "id": "M-4",
+   "text": "performance generalises to new hospital systems",
+   "value": null,
+   "detail": "asserted, not measured \u2014 as is customary"
+  }
+ ],
+ "shipped_threshold": 0.235347084447026,
+ "dev_auprc": 0.1132
+}
