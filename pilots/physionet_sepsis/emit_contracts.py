@@ -34,7 +34,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from goodhart_monitor import contracts as C  # noqa: E402
-from goodhart_monitor.contracts import Row, base, ref, ts  # noqa: E402
+from goodhart_monitor.contracts import (Row, base, qsofa, ref, sirs, ts,  # noqa: E402
+                                        organ_dysfunction, usable)
 
 OUT = ROOT / "out"
 SCHEMA = json.loads((ROOT / "contracts" / "v2"
@@ -68,7 +69,11 @@ def main() -> int:
     deploy = deploy.assign(entity_id=deploy["patient"].astype(str))
 
     ids = [p["id"].replace("B-", "") for p in shift["patients"]][:N_STAYS]
-    vital_cols = ["HR", "O2Sat", "SBP", "Resp", "Temp"]
+    # everything the screening criteria need, not only the four bedside vitals.
+    # Bilirubin is absent from this corpus, so the organ-dysfunction check runs
+    # on three of four markers and says so.
+    vital_cols = ["HR", "O2Sat", "SBP", "Resp", "Temp", "MAP",
+                  "WBC", "Lactate", "Creatinine", "Platelets"]
     age_cols = [f"{c}_age" for c in vital_cols]
 
     src = stream[stream.entity_id.isin(ids)].merge(
@@ -115,7 +120,7 @@ def main() -> int:
             "policy_hint": {"policy_id": policy["policy_id"],
                             "policy_version": policy["policy_version"]},
             "occurred_at": ts(hour), "received_at": ts(hour + 0.002),
-            "mode": "monitoring", "workflow_type": "w2.deterioration_prediction",
+            "mode": "validation", "workflow_type": "w2.deterioration_prediction",
             "subject": {"subject_ref": f"sub.{pid}"},
             "context": {
                 "site_id": C.SITE, "encounter_ref": f"enc.{pid}",
@@ -125,6 +130,11 @@ def main() -> int:
                                     "age_65_79" if row.age >= 65 else
                                     "age_50_64" if row.age >= 50 else "age_under_50"],
                 "window_start": ts(hour - 1), "window_end": ts(hour),
+                "metadata": {"icu_hour": hour,
+                             "calendar_is_derived": C.CALENDAR_IS_DERIVED,
+                             "calendar_note": "the corpus carries ICU hour and no "
+                                              "calendar; timestamps are projected "
+                                              "onto a fixed epoch"},
             },
             "artifacts": [
                 {"artifact_id": f"{art}.score", "role": "ai_output",
@@ -218,7 +228,12 @@ def main() -> int:
             tc = None
         if tc is None:
             continue
-        sampled = tc in ("tc.alert-outcome", "tc.input-condition") or rng.random() < 0.25
+        # The onset hour of a septic stay is always adjudicated. Leaving it to a
+        # 25% draw means the sample can miss the one hour that decides whether
+        # the model missed the patient.
+        at_onset = onset.get(pid) is not None and hour == onset[pid]
+        sampled = (tc in ("tc.alert-outcome", "tc.input-condition")
+                   or at_onset or rng.random() < 0.25)
         if not sampled:
             continue
 
@@ -255,8 +270,30 @@ def main() -> int:
                          f"{row.onset}. Case finding.")
         else:
             if row.onset is not None and row.first_alert is None:
-                state, strength, resolved = "overturned", "reference_label", ts(row.onset)
-                notes = f"onset ICU hour {row.onset}, no alert on this stay"
+                # Before calling this a miss, ask whether the patient looked
+                # septic at all. When the reference label and the published
+                # screening criteria disagree, the honest state is inconclusive:
+                # one of the two is wrong and this stream cannot say which.
+                fresh, _ = usable(vitals)
+                s_met, s_seen, _ = sirs(fresh)
+                q_met, q_seen, _ = qsofa(fresh)
+                o_met, o_seen, _ = organ_dysfunction(fresh)
+                evaluable = q_seen >= 2 and (s_seen + o_seen) >= 4
+                screen_negative = q_met == 0 and s_met <= 1 and o_met == 0
+                if evaluable and screen_negative:
+                    state, strength = "inconclusive", "reference_label"
+                    resolved = ts(row.onset)
+                    notes = (f"reference label places onset at ICU hour {row.onset}; "
+                             f"independent screening criteria were negative at this "
+                             f"hour (SIRS {s_met}/{s_seen}, qSOFA {q_met}/{q_seen}, "
+                             f"organ {o_met}/{o_seen}). The reference and the criteria "
+                             f"disagree and this stream cannot say which is right")
+                else:
+                    state, strength = "overturned", "reference_label"
+                    resolved = ts(row.onset)
+                    notes = (f"onset ICU hour {row.onset}, no alert on this stay; "
+                             f"screening criteria at this hour SIRS {s_met}/{s_seen}, "
+                             f"qSOFA {q_met}/{q_seen}, organ {o_met}/{o_seen}")
             elif row.onset is not None and hour < row.onset and row.first_alert is None:
                 state, strength, resolved = "overturned", "reference_label", ts(row.onset)
                 notes = "onset followed, no alert"
@@ -264,6 +301,14 @@ def main() -> int:
                 state, strength, resolved = "confirmed", "reference_label", ts(min(horizon, stay_end))
                 notes = "no onset within the window"
 
+        # resolved_at is the moment the resolution could first be made, not the
+        # moment the clinical event happened. The event time belongs in the note.
+        # Conflating them made resolutions look like they preceded their own
+        # evaluation.
+        evaluated = ts(min(horizon, stay_end))
+        if resolved is not None:
+            resolved = max(resolved, evaluated)
+            evaluated = resolved
         truths.append(validate({
             **base("truth_resolution"),
             "truth_resolution_id": f"tr.{event_id}",
@@ -271,7 +316,7 @@ def main() -> int:
             "truth_contract_id": tc, "state": state,
             "source_strength": strength,
             "source_artifact_ids": [f"{art}.outcome"],
-            "evaluated_at": ts(min(horizon, stay_end)),
+            "evaluated_at": evaluated,
             "resolved_at": resolved,
             "adjudicator": {"actor_type": "system", "actor_ref": "corpus-reference-label",
                             "role": "reference_standard"},
@@ -284,17 +329,62 @@ def main() -> int:
     coverage = {"numerator": complete, "denominator": n_events,
                 "value": round(complete / n_events, 4) if n_events else None}
 
-    adjudicated = [t for t in truths if t["state"] in ("confirmed", "overturned")]
+    # Confirmed Validity counts only contracts resolved against an outside
+    # reference. tc.input-condition re-derives the verifier's own arithmetic and
+    # can never be overturned, so counting it inflates the headline with a
+    # tautology. It is reported in the decomposition instead.
+    SELF_CONFIRMING = {"deterministic_authority"}
+    adjudicated = [t for t in truths
+                   if t["state"] in ("confirmed", "overturned")
+                   and t["source_strength"] not in SELF_CONFIRMING]
     confirmed = sum(1 for t in adjudicated if t["state"] == "confirmed")
+
+    # Rows within a stay are not independent, so the interval resamples
+    # patients. This is the same correction the record applies to AUROC.
+    by_patient: dict[str, list[int]] = {}
+    for t in adjudicated:
+        pid = t["event_id"].split(".")[1]
+        by_patient.setdefault(pid, []).append(1 if t["state"] == "confirmed" else 0)
+    ci_lo = ci_hi = None
+    pats = list(by_patient)
+    if len(pats) >= 10:
+        rs = np.random.default_rng(20260815)
+        draws = []
+        for _ in range(400):
+            pick = rs.choice(len(pats), len(pats), replace=True)
+            vals = [v for i in pick for v in by_patient[pats[i]]]
+            if vals:
+                draws.append(sum(vals) / len(vals))
+        if draws:
+            ci_lo, ci_hi = (round(float(np.percentile(draws, 2.5)), 4),
+                            round(float(np.percentile(draws, 97.5)), 4))
+
     validity = {"numerator": confirmed, "denominator": len(adjudicated),
-                "value": round(confirmed / len(adjudicated), 4) if adjudicated else None}
+                "value": round(confirmed / len(adjudicated), 4) if adjudicated else None,
+                "confidence_interval_low": ci_lo, "confidence_interval_high": ci_hi}
+
+    # Decomposition, so no single contract can carry the headline unnoticed.
+    decomposition = {}
+    for t in truths:
+        d = decomposition.setdefault(
+            t["truth_contract_id"],
+            {"confirmed": 0, "overturned": 0, "unresolved": 0,
+             "source_strength": t["source_strength"],
+             "counts_towards_headline": t["source_strength"] not in SELF_CONFIRMING})
+        if t["state"] in d:
+            d[t["state"]] += 1
+    for k, d in decomposition.items():
+        adj = d["confirmed"] + d["overturned"]
+        d["rate"] = round(d["confirmed"] / adj, 4) if adj else None
 
     # Landing counts actionable verdicts only. In monitoring mode with no review
     # queue connected there are none, so the denominator is zero and the value
     # is null. It is not 100%.
     actionable = [v for v in verdicts
                   if v["required_disposition"]["action"] not in ("record",)]
-    landed = 0
+    closed = {d["verdict_id"] for d in disps
+              if d["state"] in ("reviewed", "acted", "closed", "overridden")}
+    landed = sum(1 for v in actionable if v["verdict_id"] in closed)
     landing = {"numerator": landed, "denominator": len(actionable),
                "value": round(landed / len(actionable), 4) if actionable else None}
 
@@ -304,6 +394,46 @@ def main() -> int:
 
     unresolved = [t for t in truths if t["state"] == "unresolved"]
     due = [t for t in unresolved]
+
+    # The audited pass sample is the only estimate of what the verifier lets
+    # through. Reporting the sample rate without extrapolating it to the
+    # population leaves the reader to do the multiplication, and they will not.
+    pa = decomposition.get("tc.pass-audit", {})
+    pa_adj = pa.get("confirmed", 0) + pa.get("overturned", 0)
+    miss_rate = (pa.get("overturned", 0) / pa_adj) if pa_adj else None
+    n_pass = sum(1 for v in verdicts if v["verdict"] == "pass")
+    implied = round(n_pass * miss_rate) if miss_rate is not None else None
+    # The recommendation follows from the measurements. A fixed string would be
+    # an opinion wearing a signature block. Conditions are named, owned and dated,
+    # because "continue with conditions" without conditions is just "continue".
+    conditions = []
+    if landing["value"] is not None and landing["value"] < 0.8:
+        conditions.append({
+            "condition": f"Staff {policy['dispositions']['flag']['target']} or change "
+                         f"the disposition route. Verification that does not reach a "
+                         f"person changes nothing.",
+            "owner_role": "clinical_owner", "due": "before the next period"})
+    if miss_rate and miss_rate > 0.2:
+        conditions.append({
+            "condition": f"Raise the pass-audit sample above "
+                         f"{policy['truth_contracts'][-1]['sampling']['rate']:.0%}. "
+                         f"{miss_rate:.0%} of audited passes were overturned and the "
+                         f"population estimate rests on {pa_adj} adjudications.",
+            "owner_role": "clinical_owner", "due": "before the next period"})
+    if (validity["confidence_interval_low"] is not None
+            and validity["confidence_interval_low"] < 0.7):
+        conditions.append({
+            "condition": "Widen the verified window. The patient-clustered interval on "
+                         f"Confirmed Validity is "
+                         f"[{validity['confidence_interval_low']:.2f}, "
+                         f"{validity['confidence_interval_high']:.2f}], too wide to "
+                         f"support a decision.",
+            "owner_role": "chief_health_ai_officer", "due": "next period"})
+
+    recommendation = ("pause" if miss_rate and miss_rate > 0.5
+                      else "re_review" if conditions
+                      else "continue_with_conditions")
+
     report = validate({
         **base("periodic_report"),
         "report_id": "rep.micu.2026-w33",
@@ -319,18 +449,38 @@ def main() -> int:
                                    if v["verdict_id"] == t["verdict_id"])["verdict"] == "flag"),
                        "oldest_seconds": RESOLUTION_HOURS * 3600},
         "changes": ["no model, prompt, threshold or policy change in this period"],
+        "metadata": {
+            "validity_decomposition": decomposition,
+            "audited_pass_miss_rate": None if miss_rate is None else round(miss_rate, 4),
+            "implied_missed_in_passes": implied,
+            "distinct_patients": len({t["event_id"].split(".")[1] for t in truths}),
+            "conditions": conditions,
+        },
         "findings": [
             f"Local AUROC {record['sections']['acceptance']['measured_auroc']} against "
             f"card {record['sections']['acceptance']['card_value']}. Acceptance FAILS in "
             f"record GHM-0001.",
             f"Alert precision {record['sections']['work']['row_level_ppv']} against card "
             f"{record['sections']['work']['card_value']}. Work FAILS.",
-            "Landing has no denominator. Monitoring mode with no review destination "
-            "connected leaves zero actionable verdicts. EVC withheld.",
+            (f"{len(actionable):,} verdicts routed to "
+             f"{policy['dispositions']['flag']['target']}; {landed} reviewed within "
+             f"the service level. Landing {landing['value']:.0%}, so EVC is "
+             f"{evc:.0%} regardless of how correct the verdicts were."
+             if actionable else
+             "No verdict is actionable under this policy, so Landing has no "
+             "denominator and EVC is withheld."),
             "Card claim M-4 carries no number. No Claim Contract issued.",
             f"{len(due)} verdicts await a mature outcome window.",
+        ] + ([
+            f"{miss_rate:.1%} of audited passes were overturned. Applied to "
+            f"{n_pass:,} passes that implies roughly {implied:,} missed events in "
+            f"this period."] if miss_rate else []) + [
+            f"Confirmed Validity is measured on {len({t['event_id'].split('.')[1] for t in adjudicated})} "
+            f"patients and the interval resamples patients, not rows.",
+            "tc.input-condition re-derives the verifier's own arithmetic and is "
+            "excluded from Confirmed Validity.",
         ],
-        "recommendation": "continue_with_conditions",
+        "recommendation": recommendation,
         "generated_at": ts(24 * 7),
         "signed_by": [{"actor_type": "verifier", "actor_ref": "goodhart-monitor",
                        "role": f"verifier {C.VERIFIER_VERSION}"}],

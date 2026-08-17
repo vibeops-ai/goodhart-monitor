@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,16 +29,21 @@ import numpy as np
 import pandas as pd
 
 SCHEMA_VERSION = "2.0.0"
-ORG = "umn-health"
-SITE = "hospital-b-micu"
+# No real organisation is named here. This runs on a public research corpus, and
+# putting a health system's name on it would let a reader take a demonstration
+# for a reference customer.
+ORG = "physionet-cinc2019"
+SITE = "hospital-b"
 SYSTEM_ID = "sys-maker1-sepsis"
-DEPLOYMENT_ID = "dep-micu-monitoring"
-VERIFIER_VERSION = "0.3.0"
+DEPLOYMENT_ID = "dep-hospitalb-replay"
+VERIFIER_VERSION = "0.4.0"
 
-# The pilot has no wall clock of its own: the corpus is de-identified and
-# carries ICU hour, not calendar time. A fixed epoch is declared so timestamps
-# are reproducible rather than dependent on when the export was run.
+# The corpus carries ICU hour and no calendar. The contract requires RFC 3339
+# timestamps, so hours are projected onto a fixed epoch to keep them
+# reproducible. Every event carries icu_hour and calendar_is_derived so nothing
+# downstream mistakes the projection for a clock.
 EPOCH = datetime(2026, 8, 10, 7, 0, tzinfo=timezone.utc)
+CALENDAR_IS_DERIVED = True
 
 
 def ts(hours: float) -> str:
@@ -171,6 +177,30 @@ def authority_bundle() -> dict:
              "effective_from": ts(0),
              "approved_by_role": "clinical_owner",
              "limitations": ["screening bounds only"]},
+            {"authority_id": "auth.sirs-accp-sccm", "authority_version": "1992.1",
+             "authority_type": "diagnostic_criteria",
+             "title": "SIRS criteria (ACCP/SCCM consensus, Bone et al. 1992)",
+             "uri": "https://pubmed.ncbi.nlm.nih.gov/1597042/",
+             "effective_from": ts(0),
+             "approved_by_role": "clinical_owner",
+             "limitations": ["non-specific; present in many non-infectious states"]},
+            {"authority_id": "auth.qsofa-sepsis3", "authority_version": "2016.1",
+             "authority_type": "diagnostic_criteria",
+             "title": "qSOFA (Sepsis-3, Singer et al. JAMA 2016)",
+             "uri": "https://jamanetwork.com/journals/jama/fullarticle/2492881",
+             "effective_from": ts(0),
+             "approved_by_role": "clinical_owner",
+             "limitations": [
+                 "requires respiratory rate, systolic pressure and altered mentation",
+                 "mentation is not collected in this stream, so only 2 of 3 "
+                 "components can be evaluated"]},
+            {"authority_id": "auth.organ-dysfunction", "authority_version": "1.0.0",
+             "authority_type": "validated_rule_set",
+             "title": "Organ dysfunction markers: lactate, creatinine, platelets, MAP",
+             "effective_from": ts(0),
+             "approved_by_role": "clinical_owner",
+             "limitations": ["bilirubin is not collected in this stream",
+                             "no baseline creatinine, so only absolute values are used"]},
             {"authority_id": "auth.local-freshness", "authority_version": "1.0.0",
              "authority_type": "hospital_policy",
              "title": "Maximum observation age for a risk score",
@@ -223,6 +253,15 @@ def failure_mode_profile() -> dict:
             fm("fm.late-alert", "false_negative",
                "first alert at or after adjudicated onset",
                "high", "review", roles=("outcome",)),
+            fm("fm.silent-while-criteria-met", "false_negative",
+               "qSOFA is 2 or more while the model is silent",
+               "critical", "review", roles=("source_input", "ai_output")),
+            fm("fm.alert-without-criteria", "false_positive",
+               "model is alerting while no independent screening criterion is met",
+               "warning", "review", roles=("source_input", "ai_output")),
+            fm("fm.criteria-not-evaluable", "missing_input",
+               "too few screening components are available to form an independent view",
+               "high", "unable_to_verify", roles=("source_input",)),
             fm("fm.subgroup-gap", "subgroup_gap",
                "subgroup discrimination below the population estimate",
                "warning", "review", roles=("context",)),
@@ -263,6 +302,36 @@ CHECKS = [
      "decision_mode": "direct_deterministic", "required": True,
      "input_roles": ["ai_output"], "failure_mode_ids": ["fm.threshold-drift"],
      "missing_evidence_behavior": "fail_closed", "timeout_ms": 100},
+    {"check_id": "chk.sirs", "check_pack_id": "cp.clinical-deterioration",
+     "check_pack_version": "1.0.0",
+     "verification_claim": "SIRS criteria met, counted from observations at this hour",
+     "decision_mode": "direct_deterministic", "required": False,
+     "input_roles": ["source_input"],
+     "authority_bundle_refs": [{"id": "ab.sepsis-w2", "version": "1.0.0"}],
+     "missing_evidence_behavior": "skip_with_limitation", "timeout_ms": 200},
+    {"check_id": "chk.qsofa", "check_pack_id": "cp.clinical-deterioration",
+     "check_pack_version": "1.0.0",
+     "verification_claim": "qSOFA components met, counted from observations at this hour",
+     "decision_mode": "direct_deterministic", "required": False,
+     "input_roles": ["source_input"],
+     "authority_bundle_refs": [{"id": "ab.sepsis-w2", "version": "1.0.0"}],
+     "missing_evidence_behavior": "skip_with_limitation", "timeout_ms": 200},
+    {"check_id": "chk.organ-dysfunction", "check_pack_id": "cp.clinical-deterioration",
+     "check_pack_version": "1.0.0",
+     "verification_claim": "organ dysfunction markers outside threshold at this hour",
+     "decision_mode": "direct_deterministic", "required": False,
+     "input_roles": ["source_input"],
+     "authority_bundle_refs": [{"id": "ab.sepsis-w2", "version": "1.0.0"}],
+     "missing_evidence_behavior": "skip_with_limitation", "timeout_ms": 200},
+    {"check_id": "chk.independent-signal", "check_pack_id": "cp.clinical-deterioration",
+     "check_pack_version": "1.0.0",
+     "verification_claim": "the model's alert state agrees with an independent "
+                           "screening view formed from published criteria",
+     "decision_mode": "direct_deterministic", "required": True,
+     "input_roles": ["source_input", "ai_output"],
+     "failure_mode_ids": ["fm.silent-while-criteria-met", "fm.alert-without-criteria",
+                          "fm.criteria-not-evaluable"],
+     "missing_evidence_behavior": "unable_to_verify", "timeout_ms": 300},
     {"check_id": "chk.alert-support", "check_pack_id": "cp.predictive",
      "check_pack_version": "1.0.0",
      "verification_claim": "alert supported by locally measured precision",
@@ -296,10 +365,8 @@ def verification_policy(threshold: float, cfg) -> dict:
         "policy_version": "1.2.0",
         "system_id": SYSTEM_ID,
         "effective_from": ts(0),
-        # Monitoring mode: the verdict is recorded beside the workflow. No
-        # clinical review queue is connected, which is why Landing is not
-        # measurable for this deployment and the report withholds EVC.
-        "mode": "monitoring",
+        # Validation mode: this runs over a historical corpus, not a live unit.
+        "mode": "validation",
         "intended_use": {
             "summary": "Hourly sepsis risk scoring for adult medical ICU patients",
             "workflow": "score written to the chart, no automated order or page",
@@ -329,8 +396,9 @@ def verification_policy(threshold: float, cfg) -> dict:
         "dispositions": {
             "pass": {"action": "record", "target": "verification_ledger",
                      "landing_sla_seconds": 60, "required_closure_state": "closed"},
-            "flag": {"action": "record", "target": "verification_ledger",
-                     "landing_sla_seconds": 60, "required_closure_state": "closed"},
+            "flag": {"action": "route_review", "target": "sepsis_stewardship_queue",
+                     "landing_sla_seconds": 3600,
+                     "required_closure_state": "reviewed"},
             "hold": {"action": "escalate", "target": "ai_governance_oncall",
                      "landing_sla_seconds": 3600, "required_closure_state": "acted"},
             "unable_to_verify": {"action": "record", "target": "verification_ledger",
@@ -377,8 +445,111 @@ def verification_policy(threshold: float, cfg) -> dict:
 # ------------------------------------------------------------------ runtime
 REQUIRED_VITALS = ["HR", "O2Sat", "SBP", "Resp"]
 PLAUSIBLE = {"HR": (20, 220), "O2Sat": (50, 100), "SBP": (50, 260), "Resp": (4, 60),
-             "Temp": (30, 43)}
+             "Temp": (30, 43), "MAP": (30, 160), "WBC": (0.1, 100),
+             "Lactate": (0.1, 30), "Creatinine": (0.1, 20), "Platelets": (1, 1200)}
 MAX_AGE_HOURS = 6
+
+# Staleness applies to what is monitored continuously. A bedside vital six hours
+# old means the patient is not being watched; a lactate six hours old means
+# nobody has drawn one, which is a different statement and not a defect in the
+# model's output.
+MAX_AGE_BY_INPUT = {
+    "HR": 6, "O2Sat": 6, "SBP": 6, "Resp": 6, "Temp": 6, "MAP": 6,
+}
+
+# Episodic tests age out of usefulness instead of raising a flag. Past these
+# windows the value is not used by the screening criteria, which lowers the
+# evidence coverage the independent check reports.
+LAB_USEFUL_HOURS = {"Lactate": 12, "WBC": 24, "Creatinine": 24, "Platelets": 24}
+
+
+def usable(vitals: dict) -> tuple[dict, list[str]]:
+    """Drop episodic results that have aged out, and say which."""
+    out, aged = {}, []
+    for name, (value, age) in vitals.items():
+        limit = LAB_USEFUL_HOURS.get(name)
+        if value is not None and limit is not None and age is not None and age > limit:
+            out[name] = (None, age)
+            aged.append(f"{name} {age:.0f}h")
+        else:
+            out[name] = (value, age)
+    return out, aged
+
+# Components the independent screening view needs. Each names the authority it
+# comes from, so a check can cite the criterion it applied rather than a number
+# that appeared from nowhere.
+SIRS_INPUTS = ["Temp", "HR", "Resp", "WBC"]
+QSOFA_INPUTS = ["Resp", "SBP", "GCS"]          # GCS is not collected in this stream
+ORGAN_INPUTS = ["Lactate", "Creatinine", "Platelets", "MAP"]
+CLINICAL_INPUTS = sorted(set(SIRS_INPUTS + QSOFA_INPUTS + ORGAN_INPUTS))
+
+# A screening view is only formed when enough of it can be evaluated. Below this
+# the check returns unable_to_verify.
+MIN_CLINICAL_COVERAGE = 0.5
+
+
+def sirs(v: dict) -> tuple[int, int, list[str]]:
+    """SIRS criteria met, of those evaluable. ACCP/SCCM 1992."""
+    met, seen, hits = 0, 0, []
+    temp = v.get("Temp", (None, None))[0]
+    if temp is not None:
+        seen += 1
+        if temp > 38.0 or temp < 36.0:
+            met += 1; hits.append(f"temperature {temp}")
+    hr = v.get("HR", (None, None))[0]
+    if hr is not None:
+        seen += 1
+        if hr > 90:
+            met += 1; hits.append(f"heart rate {hr}")
+    rr = v.get("Resp", (None, None))[0]
+    if rr is not None:
+        seen += 1
+        if rr > 20:
+            met += 1; hits.append(f"respiratory rate {rr}")
+    wbc = v.get("WBC", (None, None))[0]
+    if wbc is not None:
+        seen += 1
+        if wbc > 12.0 or wbc < 4.0:
+            met += 1; hits.append(f"white cell count {wbc}")
+    return met, seen, hits
+
+
+def qsofa(v: dict) -> tuple[int, int, list[str]]:
+    """qSOFA components met, of those evaluable. Sepsis-3, Singer 2016.
+
+    Altered mentation is the third component and this stream does not carry a
+    GCS, so at most two of three can ever be evaluated here. The check reports
+    that as missing evidence rather than scoring qSOFA out of two.
+    """
+    met, seen, hits = 0, 0, []
+    rr = v.get("Resp", (None, None))[0]
+    if rr is not None:
+        seen += 1
+        if rr >= 22:
+            met += 1; hits.append(f"respiratory rate {rr}")
+    sbp = v.get("SBP", (None, None))[0]
+    if sbp is not None:
+        seen += 1
+        if sbp <= 100:
+            met += 1; hits.append(f"systolic pressure {sbp}")
+    return met, seen, hits
+
+
+def organ_dysfunction(v: dict) -> tuple[int, int, list[str]]:
+    """Markers outside threshold, of those evaluable."""
+    met, seen, hits = 0, 0, []
+    for name, test, label in (
+        ("Lactate", lambda x: x > 2.0, "lactate"),
+        ("Creatinine", lambda x: x >= 2.0, "creatinine"),
+        ("Platelets", lambda x: x < 100, "platelets"),
+        ("MAP", lambda x: x < 65, "mean arterial pressure"),
+    ):
+        val = v.get(name, (None, None))[0]
+        if val is not None:
+            seen += 1
+            if test(val):
+                met += 1; hits.append(f"{label} {val}")
+    return met, seen, hits
 
 
 @dataclass
@@ -434,8 +605,13 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
     results: list[dict] = []
     t0 = row.hour
 
+    started = time.perf_counter()
+
     def emit(check_id, pack, status, severity, assessment, assurance, proof,
-             findings=(), metrics=None, limitations=(), latency=6):
+             findings=(), metrics=None, limitations=(), latency=None):
+        nonlocal started
+        elapsed_us = (time.perf_counter() - started) * 1e6
+        started = time.perf_counter()
         results.append({
             **base("check_result"),
             "check_result_id": f"chk.{event_id}.{check_id.split('.')[-1]}",
@@ -450,7 +626,10 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
             **({"metrics": metrics} if metrics else {}),
             **({"limitations": list(limitations)} if limitations else {}),
             "started_at": ts(t0), "completed_at": ts(t0),
-            "latency_ms": latency,
+            # measured, not asserted. Sub-millisecond checks round to 0, which is
+            # the truth about a range comparison.
+            "latency_ms": int(round(elapsed_us / 1000)),
+            "metadata": {"latency_us": int(round(elapsed_us))},
         })
 
     # 1 — completeness
@@ -472,22 +651,29 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
               "failure_mode_ids": ["fm.missing-vitals"],
               "evidence_artifact_ids": [art_in]}])
 
-    # 2 — freshness
-    ages = [a for (_, a) in row.vitals.values() if a is not None]
+    # 2 — freshness, each component against its own limit
+    breaches = [(n, a, MAX_AGE_BY_INPUT[n])
+                for n, (_, a) in row.vitals.items()
+                if a is not None and n in MAX_AGE_BY_INPUT
+                and a > MAX_AGE_BY_INPUT[n]]
+    ages = [a for n, (_, a) in row.vitals.items()
+            if a is not None and n in REQUIRED_VITALS]
     oldest = max(ages) if ages else None
-    stale = oldest is not None and oldest > MAX_AGE_HOURS
+    stale = bool(breaches)
     emit("chk.input-freshness", "cp.structured-input",
          "pass" if not stale else "fail", "info" if not stale else "warning",
          "clinically_corroborated" if not stale else "review_required",
          _assurance("direct_deterministic", 1, 1, []),
          _proof("m.freshness", [art_in], [ref("auth.local-freshness", "1.0.0")],
                 [ref("rule.max-observation-age", "1.0.0")],
-                f"oldest required observation {oldest}h, limit {MAX_AGE_HOURS}h"
-                if oldest is not None else "no observation ages available",
-                {"oldest_hours": oldest}),
+                (", ".join(f"{n} {a:.0f}h over a {lim}h limit"
+                           for n, a, lim in breaches) if breaches
+                 else f"every component inside its age limit"),
+                {"breaches": [[n, a, lim] for n, a, lim in breaches]}),
          findings=[] if not stale else [
              {"code": "STALE_INPUT",
-              "message": f"oldest required observation {oldest:.0f}h, limit {MAX_AGE_HOURS}h",
+              "message": ", ".join(f"{n} {a:.0f}h over a {lim}h limit"
+                                   for n, a, lim in breaches),
               "failure_mode_ids": ["fm.stale-vitals"],
               "evidence_artifact_ids": [art_in]}],
          metrics={"oldest_observation_hours": oldest} if oldest is not None else None)
@@ -539,7 +725,143 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
                 {"score": row.score, "threshold": thr}),
          metrics={"score": row.score, "threshold": thr, "alerting": alerting})
 
-    # 6 — alert support, only when there is an alert to support
+    # 6, 7, 8 — the independent screening view, from published criteria
+    fresh, aged_out = usable(row.vitals)
+    s_met, s_seen, s_hits = sirs(fresh)
+    q_met, q_seen, q_hits = qsofa(fresh)
+    o_met, o_seen, o_hits = organ_dysfunction(fresh)
+
+    for cid, auth, met, seen, total, hits, label in (
+        ("chk.sirs", "auth.sirs-accp-sccm", s_met, s_seen, len(SIRS_INPUTS), s_hits,
+         "SIRS"),
+        ("chk.qsofa", "auth.qsofa-sepsis3", q_met, q_seen, len(QSOFA_INPUTS), q_hits,
+         "qSOFA"),
+        ("chk.organ-dysfunction", "auth.organ-dysfunction", o_met, o_seen,
+         len(ORGAN_INPUTS), o_hits, "organ dysfunction"),
+    ):
+        missing = [f"source_input:{n}" for n in
+                   (SIRS_INPUTS if cid == "chk.sirs" else
+                    QSOFA_INPUTS if cid == "chk.qsofa" else ORGAN_INPUTS)
+                   if fresh.get(n, (None, None))[0] is None]
+        emit(cid, "cp.clinical-deterioration",
+             "pass" if seen else "skipped", "info",
+             "clinically_corroborated" if seen else "unable_to_verify",
+             _assurance("direct_deterministic", total, seen, missing),
+             _proof(f"m.{cid.split('.')[-1]}", [art_in], [ref(auth, "1.0.0")],
+                    [ref(f"rule.{cid.split('.')[-1]}", "1.0.0")],
+                    f"{met} of {seen} evaluable {label} criteria met"
+                    + (f": {', '.join(hits)}" if hits else ""),
+                    {"met": met, "seen": seen}),
+             metrics={"met": met, "evaluable": seen, "defined": total},
+             limitations=([f"{label} not evaluable: no components present"]
+                          if not seen else
+                          [f"{len(missing)} of {total} {label} components absent"]
+                          if missing else [])
+             + ([f"excluded for age: {', '.join(aged_out)}"] if aged_out else []))
+
+    # 9 — the one check that can disagree with the model while it still matters.
+    # Screening positive: qSOFA >= 2, or SIRS >= 2 with an organ marker.
+    # The trigger is qSOFA >= 2, the Sepsis-3 screening rule as published. It is
+    # used unmodified: a threshold tuned by us to produce a comfortable alert
+    # rate would be our opinion wearing an authority's name. SIRS and the organ
+    # markers are reported beside it as context, and do not trigger on their own.
+    # Measured burden on this deployment: it fires on 5.9% of silent patient-hours.
+    coverage_seen = s_seen + q_seen + o_seen
+    coverage_total = len(SIRS_INPUTS) + len(QSOFA_INPUTS) + len(ORGAN_INPUTS)
+    coverage = coverage_seen / coverage_total
+    qsofa_evaluable = q_seen >= 2
+    screen_positive = q_met >= 2
+    all_hits = q_hits
+    missing_all = [f"source_input:{n}" for n in CLINICAL_INPUTS
+                   if fresh.get(n, (None, None))[0] is None]
+
+    if not qsofa_evaluable or coverage < MIN_CLINICAL_COVERAGE:
+        emit("chk.independent-signal", "cp.clinical-deterioration",
+             "indeterminate", "high", "unable_to_verify",
+             _assurance("direct_deterministic", coverage_total, coverage_seen,
+                        missing_all,
+                        limitations=["too little of the screening view is "
+                                     "evaluable to agree or disagree with the model"]),
+             _proof("m.independent-signal", [art_in, art_out],
+                    [ref("auth.qsofa-sepsis3", "1.0.0"),
+                     ref("auth.sirs-accp-sccm", "1.0.0")],
+                    [ref("rule.screen-positive", "1.0.0")],
+                    (f"qSOFA needs respiratory rate and systolic pressure; "
+                     f"{q_seen} of 2 available"
+                     if not qsofa_evaluable else
+                     f"only {coverage_seen} of {coverage_total} screening components "
+                     f"available"),
+                    {"coverage": round(coverage, 3)}),
+             findings=[{"code": "CRITERIA_NOT_EVALUABLE",
+                        "message": f"{coverage_seen}/{coverage_total} screening "
+                                   f"components available",
+                        "failure_mode_ids": ["fm.criteria-not-evaluable"],
+                        "evidence_artifact_ids": [art_in]}],
+             metrics={"coverage": round(coverage, 3)}, latency=12)
+    elif screen_positive and not alerting:
+        emit("chk.independent-signal", "cp.clinical-deterioration",
+             "fail", "critical", "clinically_disputed",
+             _assurance("direct_deterministic", coverage_total, coverage_seen,
+                        missing_all,
+                        limitations=["screening criteria are non-specific and do "
+                                     "not establish infection"]),
+             _proof("m.independent-signal", [art_in, art_out],
+                    [ref("auth.qsofa-sepsis3", "1.0.0"),
+                     ref("auth.sirs-accp-sccm", "1.0.0")],
+                    [ref("rule.screen-positive", "1.0.0")],
+                    f"screening positive ({', '.join(all_hits)}) while the model "
+                    f"scores {row.score:.4f}, below the {thr:.4f} threshold",
+                    {"sirs": s_met, "qsofa": q_met, "organ": o_met}),
+             findings=[{"code": "SILENT_WHILE_CRITERIA_MET",
+                        "message": f"screening criteria met ({', '.join(all_hits)}) "
+                                   f"with no alert",
+                        "claim_contract_id": "cc.lead-time",
+                        "failure_mode_ids": ["fm.silent-while-criteria-met"],
+                        "evidence_artifact_ids": [art_in, art_out]}],
+             metrics={"sirs_met": s_met, "qsofa_met": q_met, "organ_met": o_met},
+             latency=14)
+    elif alerting and not screen_positive:
+        emit("chk.independent-signal", "cp.clinical-deterioration",
+             "fail", "warning", "clinically_disputed",
+             _assurance("direct_deterministic", coverage_total, coverage_seen,
+                        missing_all),
+             _proof("m.independent-signal", [art_in, art_out],
+                    [ref("auth.qsofa-sepsis3", "1.0.0"),
+                     ref("auth.sirs-accp-sccm", "1.0.0")],
+                    [ref("rule.screen-positive", "1.0.0")],
+                    f"model alerting at {row.score:.4f} with no screening criterion "
+                    f"met (SIRS {s_met}/{s_seen}, qSOFA {q_met}/{q_seen}, "
+                    f"organ {o_met}/{o_seen})",
+                    {"sirs": s_met, "qsofa": q_met, "organ": o_met}),
+             findings=[{"code": "ALERT_WITHOUT_CRITERIA",
+                        "message": "alert with no independent screening criterion met",
+                        "claim_contract_id": "cc.alert-precision",
+                        "failure_mode_ids": ["fm.alert-without-criteria"],
+                        "evidence_artifact_ids": [art_in, art_out]}],
+             metrics={"sirs_met": s_met, "qsofa_met": q_met, "organ_met": o_met},
+             latency=14)
+    else:
+        emit("chk.independent-signal", "cp.clinical-deterioration",
+             "pass", "info", "clinically_corroborated",
+             _assurance("direct_deterministic", coverage_total, coverage_seen,
+                        missing_all,
+                        limitations=["agreement with screening criteria is not a "
+                                     "clinical judgement and no clinician reviewed "
+                                     "this case"]),
+             _proof("m.independent-signal", [art_in, art_out],
+                    [ref("auth.qsofa-sepsis3", "1.0.0"),
+                     ref("auth.sirs-accp-sccm", "1.0.0")],
+                    [ref("rule.screen-positive", "1.0.0")],
+                    ("screening positive and the model is alerting"
+                     if alerting else
+                     f"no screening criterion met (SIRS {s_met}/{s_seen}, "
+                     f"qSOFA {q_met}/{q_seen}, organ {o_met}/{o_seen}) and the "
+                     f"model is silent"),
+                    {"sirs": s_met, "qsofa": q_met, "organ": o_met}),
+             metrics={"sirs_met": s_met, "qsofa_met": q_met, "organ_met": o_met},
+             latency=14)
+
+    # 10 — alert support, only when there is an alert to support
     if alerting:
         emit("chk.alert-support", "cp.predictive", "indeterminate", "warning",
              "review_required",
@@ -573,6 +895,9 @@ def compose(results: list[dict], policy: dict, event_id: str, trace_id: str,
         "fm.missing-vitals": "unable_to_verify", "fm.out-of-population": "unable_to_verify",
         "fm.threshold-drift": "hold", "fm.stale-vitals": "flag",
         "fm.implausible-value": "flag", "fm.false-positive": "review",
+        "fm.criteria-not-evaluable": "unable_to_verify",
+        "fm.silent-while-criteria-met": "review",
+        "fm.alert-without-criteria": "flag",
     }
     statuses = {r["status"] for r in results}
     assessments = {r["clinical_assessment"] for r in results}
@@ -587,10 +912,10 @@ def compose(results: list[dict], policy: dict, event_id: str, trace_id: str,
         verdict, reason = "unable_to_verify", "required_evidence_absent"
     elif "hold" in actions:
         verdict, reason = "hold", "policy_violation"
+    elif "clinically_disputed" in assessments:
+        verdict, reason = "flag", "clinical_disagreement"
     elif "review_required" in assessments:
         verdict, reason = "flag", "review_required"
-    elif "clinically_disputed" in assessments:
-        verdict, reason = "flag", "disputed"
 
     # the clinical assessment carried on the verdict is the most consequential
     # one any check produced, never an average

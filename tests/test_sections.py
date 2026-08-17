@@ -283,3 +283,78 @@ def test_sweep_always_contains_the_shipped_threshold(stream, card, cfg):
     from goodhart_monitor.sweep import sweep as run_sweep
     sw = run_sweep(stream, card, cfg, n_points=10)
     assert any(abs(p["threshold"] - card.threshold) < 1e-9 for p in sw["points"])
+
+
+# ------------------------------------------------- independent clinical signal
+def _vitals(**kw):
+    base = {"HR": (80, 0), "O2Sat": (97, 0), "SBP": (130, 0), "Resp": (16, 0),
+            "Temp": (36.8, 0), "MAP": (85, 0), "WBC": (7.0, 1),
+            "Lactate": (1.0, 2), "Creatinine": (0.9, 2), "Platelets": (250, 2)}
+    base.update({k: (v, 0) for k, v in kw.items()})
+    return base
+
+
+def _row(score, vitals):
+    from goodhart_monitor.contracts import Row
+    return Row(pid="p1", hour=10, score=score, label=0, age=64, sex=1,
+               vitals=vitals, onset=None, stay_septic=False, first_alert=None)
+
+
+def _signal(row):
+    from goodhart_monitor.contracts import run_checks
+    return next(c for c in run_checks(row, 0.5, 0.6, "ev.t", "tr.t")
+                if c["check_id"] == "chk.independent-signal")
+
+
+def test_screening_positive_while_model_silent_is_disputed():
+    """qSOFA 2 with no alert is the disagreement worth having."""
+    c = _signal(_row(0.05, _vitals(Resp=24, SBP=95)))
+    assert c["clinical_assessment"] == "clinically_disputed"
+    assert c["status"] == "fail"
+    assert c["severity"] == "critical"
+    assert any("fm.silent-while-criteria-met" in f["failure_mode_ids"]
+               for f in c["findings"])
+
+
+def test_alert_with_no_criteria_is_disputed_the_other_way():
+    c = _signal(_row(0.9, _vitals()))
+    assert c["clinical_assessment"] == "clinically_disputed"
+    assert any("fm.alert-without-criteria" in f["failure_mode_ids"]
+               for f in c["findings"])
+
+
+def test_agreement_is_corroborated_and_says_no_clinician_saw_it():
+    c = _signal(_row(0.05, _vitals()))
+    assert c["clinical_assessment"] == "clinically_corroborated"
+    assert any("no clinician" in l for l in c["assurance"]["limitations"])
+
+
+def test_missing_qsofa_components_cannot_form_a_view():
+    v = _vitals()
+    v["Resp"] = (None, None)
+    v["SBP"] = (None, None)
+    c = _signal(_row(0.05, v))
+    assert c["clinical_assessment"] == "unable_to_verify"
+    assert "qSOFA needs" in c["decision_proof"]["explanation"]
+
+
+def test_stale_lactate_is_excluded_not_flagged():
+    """An episodic result that has aged out lowers coverage; it is not a defect
+    in the model's output."""
+    from goodhart_monitor.contracts import run_checks, usable
+    v = _vitals()
+    v["Lactate"] = (8.0, 40)                      # 40h old, well past its window
+    fresh, aged = usable(v)
+    assert fresh["Lactate"][0] is None
+    assert any("Lactate" in a for a in aged)
+    fresh_check = next(c for c in run_checks(_row(0.05, v), 0.5, 0.6, "ev.t", "tr.t")
+                       if c["check_id"] == "chk.input-freshness")
+    assert fresh_check["status"] == "pass"        # not a staleness flag
+
+
+def test_screening_uses_the_published_threshold_only():
+    """SIRS alone must not trigger. It is non-specific in an ICU and the
+    authority does not use it as a screening rule."""
+    c = _signal(_row(0.05, _vitals(HR=110, Temp=38.5, Resp=21, WBC=14.0)))
+    assert c["clinical_assessment"] == "clinically_corroborated"
+    assert c["metrics"]["sirs_met"] >= 3
