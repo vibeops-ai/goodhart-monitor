@@ -152,6 +152,29 @@ def validate(df: pd.DataFrame, source: str = "<memory>") -> ScoredStream:
     return ScoredStream(df=df, has_time=has_time, has_onset=has_onset, source=source)
 
 
+def content_sha256(stream: "ScoredStream") -> str:
+    """Hash what the stream says, not the bytes it arrived in.
+
+    Hashing the file digests the parquet container, so a writer upgrade changes
+    the hash while every value is identical. The record then reports a
+    difference that is not a finding, which is exactly the failure it exists to
+    detect. This hashes the validated content in a fixed order with fixed
+    formatting, so the same numbers give the same digest across library
+    versions and file formats.
+    """
+    import hashlib
+
+    df = stream.df
+    cols = [c for c in df.columns if c != "onset_t"]
+    h = hashlib.sha256()
+    h.update(("\t".join(cols) + "\n").encode())
+    for row in df[cols].itertuples(index=False, name=None):
+        h.update(("\t".join(
+            f"{v:.12g}" if isinstance(v, float) else str(v) for v in row
+        ) + "\n").encode())
+    return h.hexdigest()
+
+
 def load(path: str | Path) -> ScoredStream:
     p = Path(path)
     if not p.exists():

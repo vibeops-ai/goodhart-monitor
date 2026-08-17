@@ -82,3 +82,38 @@ def test_subgroup_candidates_exclude_reserved():
     s = validate(base(Age=[50, 50, 60, 60]))
     assert "Age" in s.subgroup_candidates()
     assert not {"score", "label", "t", "entity_id"} & set(s.subgroup_candidates())
+
+
+def test_content_hash_survives_a_writer_change():
+    """A parquet writer upgrade changes the file bytes and must not read as a
+    finding. Hashing the file made a library version a difference in the
+    record."""
+    import hashlib, tempfile, pathlib
+    from goodhart_monitor.contract import content_sha256, load
+    df = base()
+    files, contents = set(), set()
+    with tempfile.TemporaryDirectory() as d:
+        for name, kw in [("a", {"compression": "snappy"}),
+                         ("b", {"compression": "gzip"}),
+                         ("c", {"compression": None}),
+                         ("d", {"compression": "snappy", "row_group_size": 2})]:
+            p = pathlib.Path(d) / f"{name}.parquet"
+            df.to_parquet(p, index=False, **kw)
+            files.add(hashlib.sha256(p.read_bytes()).hexdigest())
+            contents.add(content_sha256(load(p)))
+    assert len(files) > 1, "expected the writer settings to change the bytes"
+    assert len(contents) == 1, "content hash must not move with the container"
+
+
+def test_content_hash_ignores_row_order():
+    from goodhart_monitor.contract import content_sha256
+    df = base()
+    assert content_sha256(validate(df)) == content_sha256(validate(df.iloc[::-1]))
+
+
+def test_content_hash_changes_when_a_value_changes():
+    from goodhart_monitor.contract import content_sha256
+    df = base()
+    before = content_sha256(validate(df))
+    df.loc[0, "score"] = 0.99
+    assert content_sha256(validate(df)) != before

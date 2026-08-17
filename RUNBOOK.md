@@ -112,13 +112,11 @@ out/api/report.json         coverage, confirmed validity, landing, EVC, debt
 out/api/events/<id>.json    the full record for one event
 ```
 
-To read it in the console UI, serve the API and the site from the same origin:
-
-```
-cp -r out/api  ../goodhart-web/public/api/v1
-cd ../goodhart-web && npm run build && npx astro preview
-# http://localhost:4321/app/
-```
+The output is plain JSON and is meant to be read by whatever you already use:
+load `index.json` into a notebook, or `report.json` into your governance
+tooling. The hosted console at
+`https://main.d35cqeb22q1hmk.amplifyapp.com/app/` reads this exact shape; its
+source is not public yet, so this runbook does not ask you to build it.
 
 ## Where the data sits
 

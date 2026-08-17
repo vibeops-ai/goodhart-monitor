@@ -30,7 +30,7 @@
     "id": "M-4",
     "kind": "unverifiable",
     "text": "performance generalises to new hospital systems",
-    "detail": "asserted, not measured, as is customary"
+    "detail": "no supporting measurement provided"
    }
   ],
   "threshold": 0.235347084447026,
@@ -134,7 +134,7 @@
    "tolerance_fraction": 0.8,
    "verdict": "FAILS",
    "why": "alert precision 0.1083 against a floor of 0.1606 (0.8 of the card's 0.2007). Staffing consequence: 2.2 entities evaluated per actionable catch, at 19.4% sensitivity.",
-   "note": "entities-evaluated-per-actionable-catch is Singh's number (Michigan's Epic sepsis model needed 8). Only a first alert before onset counts as a catch. Read it beside the sensitivity: a threshold can buy a flattering ratio by refusing to alert, and no card mentions that trade"
+   "note": "entities evaluated per actionable catch is the operational unit; the Epic sepsis model needed 8 at Michigan (Wong et al., JAMA Intern Med 2021). Only a first alert before onset counts as a catch. Read it beside the sensitivity: a threshold can buy a flattering ratio by refusing to alert, and no card mentions that trade"
   },
   "timing": {
    "question": "does it warn before the event, or notice it afterwards?",
@@ -387,7 +387,7 @@
      "id": "M-4",
      "kind": "unverifiable",
      "text": "performance generalises to new hospital systems",
-     "detail": "asserted, not measured, as is customary"
+     "detail": "no supporting measurement provided"
     }
    ],
    "note": "recorded, never scored. A claim with no number attached is not evidence, and its presence on a card is itself something the committee should weigh"
@@ -402,6 +402,6 @@
    ]
   }
  },
- "inputs_sha256": "2b20a60014e9a1c0a2c32c045d724ac636f4f9a810a22f8ed60ed552910f7348",
- "record_sha256": "bfa67910e4ee327edff97448af987871d51708ab849422006dd7e6c3924cab3a"
+ "inputs_sha256": "7fc6349c54eca921dedfe0c1c687f5a91440d60e61661748b76a8fca66c97b66",
+ "record_sha256": "4cd3e90a9cb7e2be9bf7a8fe206605aadd30ec8e43d4d7ad9c0513fcf231f53d"
 }

@@ -3,7 +3,7 @@
 **Subject** · MAKER-1 sepsis early warning 1.0.0  
 **Deployment population** · hospital system B, 20,000 adult ICU stays, hourly scoring  
 **Stream** · 761,995 rows · 20,000 entities · outcome prevalence 0.0141  
-**Record hash** · `bfa67910e4ee327edff97448af987871`
+**Record hash** · `4cd3e90a9cb7e2be9bf7a8fe206605aa`
 
 **Overall · FAILS**. Failing sections: acceptance, work
 
@@ -38,7 +38,7 @@ Card says: **~20% of alerts are true at the shipped threshold**
 | entities evaluated per actionable catch | 2.2 |
 | …at sensitivity | 0.1944 |
 
-> entities-evaluated-per-actionable-catch is Singh's number (Michigan's Epic sepsis model needed 8). Only a first alert before onset counts as a catch. Read it beside the sensitivity: a threshold can buy a flattering ratio by refusing to alert, and no card mentions that trade
+> entities evaluated per actionable catch is the operational unit; the Epic sepsis model needed 8 at Michigan (Wong et al., JAMA Intern Med 2021). Only a first alert before onset counts as a catch. Read it beside the sensitivity: a threshold can buy a flattering ratio by refusing to alert, and no card mentions that trade
 
 **Why this verdict** · alert precision 0.1083 against a floor of 0.1606 (0.8 of the card's 0.2007). Staffing consequence: 2.2 entities evaluated per actionable catch, at 19.4% sensitivity.
 
@@ -112,7 +112,7 @@ AUROC spread across groups: 0.056
 
 ## CLAIMS THAT CANNOT BE TESTED
 
-- **M-4** performance generalises to new hospital systems. _asserted, not measured, as is customary_
+- **M-4** performance generalises to new hospital systems. _no supporting measurement provided_
 
 > recorded, never scored. A claim with no number attached is not evidence, and its presence on a card is itself something the committee should weigh
 
@@ -126,4 +126,4 @@ Carried at the same weight as the findings.
 - hospital B is a held-out system the maker never trained on; this record says nothing about hospital A
 
 ---
-Re-run with the same inputs and this record hashes to `bfa67910e4ee327edff97448af987871` again. If it does not, something changed and the difference is the finding.
+Re-run with the same inputs and this record hashes to `4cd3e90a9cb7e2be9bf7a8fe206605aa` again. If it does not, something changed and the difference is the finding.

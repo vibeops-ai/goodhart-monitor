@@ -29,10 +29,16 @@ from .contract import ContractError
 EXIT_OK, EXIT_FAIL, EXIT_INDET, EXIT_BADINPUT = 0, 1, 2, 3
 
 
-def _hash_files(paths: list[Path]) -> str:
+def _inputs_sha256(stream, card_path: Path) -> str:
+    """Digest of the inputs' content, independent of how they were serialised.
+
+    The stream is hashed by value; the card by its canonical JSON, so
+    reindenting it is not a finding either.
+    """
     h = hashlib.sha256()
-    for p in sorted(paths):
-        h.update(hashlib.sha256(p.read_bytes()).digest())
+    h.update(contract.content_sha256(stream).encode())
+    card = json.loads(Path(card_path).read_text())
+    h.update(json.dumps(card, sort_keys=True, separators=(",", ":")).encode())
     return h.hexdigest()
 
 
@@ -52,7 +58,7 @@ def cmd_verify(a: argparse.Namespace) -> int:
     rec = record.build(
         stream, card, cfg,
         deployment=a.deployment,
-        inputs_sha256=_hash_files([Path(a.stream), Path(a.card)]),
+        inputs_sha256=_inputs_sha256(stream, Path(a.card)),
         extra_limits=a.limit or None,
         ordered_stream=a.ordered,
         threshold=a.threshold)

@@ -13,6 +13,12 @@ hospital already owns.
     goodhart-monitor run     --manifest ours.toml # verify it
     goodhart-monitor verify  --stream s.parquet --card card.json  # single record
 
+Two entry points, one engine. `verify` answers "does this card hold on this
+population" and produces the five-section record. `run` answers "what happened
+to every output this period" and produces the per-event API and the periodic
+report. They share the check packs, the contracts and the metric code in
+`periodic.py`.
+
 See RUNBOOK.md for the four steps a hospital follows, including the five files
 to export and what each one unlocks.
 
