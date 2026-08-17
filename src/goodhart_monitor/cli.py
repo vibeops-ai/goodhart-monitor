@@ -21,6 +21,8 @@ from pathlib import Path
 from . import config as cfgmod
 from . import contract, record, render, stats
 from .sweep import sweep as run_sweep
+from . import intake as intakemod
+from . import runner as runnermod
 from .card import CardError, load as load_card
 from .contract import ContractError
 
@@ -113,6 +115,68 @@ def cmd_sweep(a: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_intake(a: argparse.Namespace) -> int:
+    """Answer 'can you run this on our export' before any verdict exists."""
+    try:
+        m = intakemod.load(a.manifest)
+    except intakemod.IntakeError as e:
+        print(f"manifest rejected: {e}", file=sys.stderr)
+        return EXIT_BADINPUT
+    r = intakemod.assess(m)
+    print(intakemod.render(r))
+    return EXIT_OK if r.runnable else EXIT_BADINPUT
+
+
+def cmd_run(a: argparse.Namespace) -> int:
+    """Run the verifier over a hospital export named by a manifest."""
+    try:
+        m = intakemod.load(a.manifest)
+    except intakemod.IntakeError as e:
+        print(f"manifest rejected: {e}", file=sys.stderr)
+        return EXIT_BADINPUT
+    r = intakemod.assess(m)
+    if not r.runnable:
+        print(intakemod.render(r), file=sys.stderr)
+        return EXIT_BADINPUT
+
+    out = Path(a.out)
+    res = runnermod.run(m, out, record_id=a.record_id)
+    rep = res["report"]
+    print(f"verified {res['events']:,} events -> {res['api']}")
+    for k, label in (("coverage", "coverage"), ("confirmed_validity", "validity"),
+                     ("landing", "landing")):
+        met = rep[k]
+        val = "n/a" if met["value"] is None else f"{met['value']:.4f}"
+        print(f"  {label:<9} {val:>8}   {met['numerator']}/{met['denominator']}")
+    print(f"  evc       {'withheld' if rep['evc'] is None else rep['evc']:>8}")
+    for f in rep["findings"]:
+        print(f"  - {f}")
+    return EXIT_OK
+
+
+def cmd_selftest(a: argparse.Namespace) -> int:
+    """Prove the install works end to end, with synthetic data and no access."""
+    dest = Path(a.dir)
+    mp = intakemod.synthesise(dest, with_outcomes=not a.no_outcomes)
+    print(f"wrote synthetic export and manifest to {dest}/")
+    m = intakemod.load(mp)
+    r = intakemod.assess(m)
+    print()
+    print(intakemod.render(r))
+    if not r.runnable:
+        return EXIT_BADINPUT
+    print()
+    res = runnermod.run(m, dest / "api", record_id="SELFTEST")
+    rep = res["report"]
+    print(f"verified {res['events']:,} synthetic events")
+    print(f"  coverage {rep['coverage']['value']}  "
+          f"validity {rep['confirmed_validity']['value']}  "
+          f"landing {rep['landing']['value']}  "
+          f"evc {'withheld' if rep['evc'] is None else rep['evc']}")
+    print(f"  api written to {dest / 'api'}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="goodhart-monitor",
@@ -142,6 +206,22 @@ def build_parser() -> argparse.ArgumentParser:
     s_.add_argument("--out", default="out")
     s_.add_argument("--points", type=int, default=220)
     s_.set_defaults(fn=cmd_sweep)
+
+    i = sub.add_parser("intake", help="check a hospital export against the manifest")
+    i.add_argument("--manifest", required=True)
+    i.set_defaults(fn=cmd_intake)
+
+    rn = sub.add_parser("run", help="verify a hospital export named by a manifest")
+    rn.add_argument("--manifest", required=True)
+    rn.add_argument("--out", default="out/api")
+    rn.add_argument("--record-id", default="GHM-LOCAL")
+    rn.set_defaults(fn=cmd_run)
+
+    st = sub.add_parser("selftest", help="run the whole loop on synthetic data")
+    st.add_argument("--dir", default="selftest")
+    st.add_argument("--no-outcomes", action="store_true",
+                    help="omit the outcome export, to see validity degrade")
+    st.set_defaults(fn=cmd_selftest)
 
     c = sub.add_parser("validate", help="check a stream against the input contract")
     c.add_argument("--stream", required=True)

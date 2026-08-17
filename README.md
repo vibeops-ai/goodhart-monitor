@@ -8,8 +8,13 @@ learns the outcome. That is the whole input. The model stays the vendor's, its
 weights stay wherever they are, and the record is produced from the output the
 hospital already owns.
 
-    goodhart-monitor verify --stream scores.parquet --card vendor_card.json \
-                            --config governance.toml --out out
+    goodhart-monitor selftest --dir /tmp/ghm      # whole loop, synthetic data
+    goodhart-monitor intake  --manifest ours.toml # can we run on your export?
+    goodhart-monitor run     --manifest ours.toml # verify it
+    goodhart-monitor verify  --stream s.parquet --card card.json  # single record
+
+See RUNBOOK.md for the four steps a hospital follows, including the five files
+to export and what each one unlocks.
 
 Exit code 0 no finding in scope · 1 a section FAILS · 2 something is
 INDETERMINATE · 3 the inputs are not verifiable.
