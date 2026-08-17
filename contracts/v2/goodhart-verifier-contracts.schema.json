@@ -1,0 +1,1168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.goodhart.ai/verifier/2.0.0/contracts.schema.json",
+  "title": "GoodHart Verifier Contracts 2.0.0",
+  "description": "Canonical cross-module objects for the GoodHart independent runtime verifier.",
+  "oneOf": [
+    { "$ref": "#/$defs/ClaimContract" },
+    { "$ref": "#/$defs/AuthorityBundle" },
+    { "$ref": "#/$defs/FailureModeProfile" },
+    { "$ref": "#/$defs/VerificationEvent" },
+    { "$ref": "#/$defs/VerificationPolicy" },
+    { "$ref": "#/$defs/CheckResult" },
+    { "$ref": "#/$defs/Verdict" },
+    { "$ref": "#/$defs/DispositionEvent" },
+    { "$ref": "#/$defs/TruthResolution" },
+    { "$ref": "#/$defs/PeriodicReport" }
+  ],
+  "$defs": {
+    "Identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "SemVer": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ObjectBase": {
+      "type": "object",
+      "required": ["schema_version", "object_type", "organization_id"],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "object_type": { "type": "string" },
+        "organization_id": { "$ref": "#/$defs/Identifier" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "VersionedRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "MetricRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "operator", "target"],
+      "properties": {
+        "metric": {
+          "enum": [
+            "accuracy",
+            "sensitivity",
+            "specificity",
+            "ppv",
+            "npv",
+            "auroc",
+            "auprc",
+            "calibration_error",
+            "brier_score",
+            "lead_time",
+            "custom"
+          ]
+        },
+        "operator": { "enum": ["gte", "lte", "eq", "between"] },
+        "target": { "type": "number" },
+        "upper_target": { "type": "number" },
+        "confidence_level": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "subgroup_tags": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operator": { "const": "between" } } },
+          "then": { "required": ["upper_target"] }
+        }
+      ]
+    },
+    "ReferenceStandard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "source_roles", "adjudication_method", "maturity_window_seconds"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "source_roles": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "adjudication_method": { "type": "string", "minLength": 1 },
+        "maturity_window_seconds": { "type": "integer", "minimum": 0 },
+        "authority_refs": { "type": "array", "items": { "$ref": "#/$defs/VersionedRef" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ClaimContract": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "claim_contract_id",
+            "claim_contract_version",
+            "system_id",
+            "vendor_claim",
+            "normalized_claim",
+            "claim_kind",
+            "clinical_endpoint",
+            "decision_timepoint",
+            "intended_population",
+            "intended_inputs",
+            "output_semantics",
+            "performance_requirements",
+            "reference_standard",
+            "effective_from"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "claim_contract" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "claim_contract_id": { "$ref": "#/$defs/Identifier" },
+            "claim_contract_version": { "$ref": "#/$defs/SemVer" },
+            "system_id": { "$ref": "#/$defs/Identifier" },
+            "vendor_claim": { "type": "string", "minLength": 1 },
+            "normalized_claim": { "type": "string", "minLength": 1 },
+            "claim_kind": {
+              "enum": [
+                "diagnostic_detection",
+                "diagnostic_rule_out",
+                "prognostic_prediction",
+                "clinical_recommendation",
+                "documentation_integrity",
+                "workflow_action",
+                "operational_prediction",
+                "other"
+              ]
+            },
+            "clinical_endpoint": { "type": "string", "minLength": 1 },
+            "decision_timepoint": { "type": "string", "minLength": 1 },
+            "intended_population": { "type": "string", "minLength": 1 },
+            "intended_inputs": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "output_semantics": { "type": "string", "minLength": 1 },
+            "performance_requirements": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/MetricRequirement" }
+            },
+            "reference_standard": { "$ref": "#/$defs/ReferenceStandard" },
+            "effective_from": { "$ref": "#/$defs/Timestamp" },
+            "effective_until": { "$ref": "#/$defs/Timestamp" },
+            "approved_by_role": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "AuthoritySource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority_id", "authority_version", "authority_type", "title", "effective_from"],
+      "properties": {
+        "authority_id": { "$ref": "#/$defs/Identifier" },
+        "authority_version": { "type": "string", "minLength": 1 },
+        "authority_type": {
+          "enum": [
+            "regulatory_label",
+            "clinical_guideline",
+            "diagnostic_criteria",
+            "terminology",
+            "hospital_policy",
+            "validated_rule_set",
+            "reference_dataset",
+            "other"
+          ]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string", "format": "uri" },
+        "effective_from": { "$ref": "#/$defs/Timestamp" },
+        "effective_until": { "$ref": "#/$defs/Timestamp" },
+        "approved_by_role": { "type": "string" },
+        "content_hash": { "type": "string" },
+        "local_override": { "type": "boolean", "default": false },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "AuthorityBundle": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "authority_bundle_id",
+            "authority_bundle_version",
+            "sources",
+            "effective_from"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "authority_bundle" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "authority_bundle_id": { "$ref": "#/$defs/Identifier" },
+            "authority_bundle_version": { "$ref": "#/$defs/SemVer" },
+            "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/AuthoritySource" } },
+            "effective_from": { "$ref": "#/$defs/Timestamp" },
+            "effective_until": { "$ref": "#/$defs/Timestamp" },
+            "approved_by_role": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "FailureMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "failure_mode_id",
+        "category",
+        "description",
+        "required_evidence_roles",
+        "detector_ref",
+        "severity",
+        "default_action"
+      ],
+      "properties": {
+        "failure_mode_id": { "$ref": "#/$defs/Identifier" },
+        "category": {
+          "enum": [
+            "false_positive",
+            "false_negative",
+            "clinical_mimic",
+            "missing_input",
+            "corrupt_input",
+            "stale_input",
+            "out_of_distribution",
+            "subgroup_gap",
+            "hallucination",
+            "contradiction",
+            "omission",
+            "unsupported_citation",
+            "threshold_error",
+            "latency",
+            "delivery",
+            "human_workflow",
+            "other"
+          ]
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "affected_population_tags": { "type": "array", "items": { "type": "string" } },
+        "required_evidence_roles": { "type": "array", "items": { "type": "string" } },
+        "detector_ref": { "$ref": "#/$defs/VersionedRef" },
+        "severity": { "enum": ["info", "warning", "high", "critical"] },
+        "default_action": { "enum": ["record", "flag", "review", "hold", "block", "unable_to_verify"] },
+        "validation_ref": { "$ref": "#/$defs/VersionedRef" },
+        "authority_refs": { "type": "array", "items": { "$ref": "#/$defs/VersionedRef" } }
+      }
+    },
+    "FailureModeProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "failure_mode_profile_id",
+            "failure_mode_profile_version",
+            "claim_contract_refs",
+            "failure_modes",
+            "effective_from"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "failure_mode_profile" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "failure_mode_profile_id": { "$ref": "#/$defs/Identifier" },
+            "failure_mode_profile_version": { "$ref": "#/$defs/SemVer" },
+            "claim_contract_refs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/VersionedRef" } },
+            "authority_bundle_refs": { "type": "array", "items": { "$ref": "#/$defs/VersionedRef" } },
+            "failure_modes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/FailureMode" } },
+            "effective_from": { "$ref": "#/$defs/Timestamp" },
+            "effective_until": { "$ref": "#/$defs/Timestamp" },
+            "approved_by_role": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "EvidenceCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_count", "present_count", "coverage_rate", "missing_roles"],
+      "properties": {
+        "required_count": { "type": "integer", "minimum": 0 },
+        "present_count": { "type": "integer", "minimum": 0 },
+        "coverage_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "missing_roles": { "type": "array", "items": { "type": "string" } },
+        "stale_roles": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "Agreement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supporting_checks", "total_checks"],
+      "properties": {
+        "supporting_checks": { "type": "integer", "minimum": 0 },
+        "total_checks": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "Assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_mode", "evidence_coverage", "calibration_status"],
+      "properties": {
+        "decision_mode": {
+          "enum": [
+            "direct_deterministic",
+            "deterministic_after_extraction",
+            "statistical_calibrated",
+            "clinical_inference_calibrated",
+            "clinical_inference_ordinal",
+            "unable"
+          ]
+        },
+        "execution_reproducibility": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "evidence_coverage": { "$ref": "#/$defs/EvidenceCoverage" },
+        "calibrated_correctness": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "calibration_status": { "enum": ["not_applicable", "local_validated", "external_validated", "uncalibrated"] },
+        "calibration_ref": { "$ref": "#/$defs/VersionedRef" },
+        "agreement": { "$ref": "#/$defs/Agreement" },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "calibration_status": { "enum": ["local_validated", "external_validated"] }
+            }
+          },
+          "then": { "required": ["calibrated_correctness", "calibration_ref"] }
+        }
+      ]
+    },
+    "DecisionProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_ref", "input_artifact_ids", "authority_refs", "rule_refs"],
+      "properties": {
+        "method_ref": { "$ref": "#/$defs/VersionedRef" },
+        "input_artifact_ids": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } },
+        "authority_refs": { "type": "array", "items": { "$ref": "#/$defs/VersionedRef" } },
+        "rule_refs": { "type": "array", "items": { "$ref": "#/$defs/VersionedRef" } },
+        "input_hash": { "type": "string" },
+        "explanation": { "type": "string" }
+      }
+    },
+    "ClinicalAssessment": {
+      "enum": ["clinically_corroborated", "clinically_disputed", "review_required", "unable_to_verify"]
+    },
+    "ArtifactContentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri"],
+      "properties": {
+        "uri": { "type": "string", "format": "uri" },
+        "mime_type": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+        "encryption_key_ref": { "type": "string" },
+        "expires_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "role",
+        "modality",
+        "availability",
+        "observed_at"
+      ],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/Identifier" },
+        "role": {
+          "enum": [
+            "context",
+            "source_input",
+            "ai_output",
+            "proposed_action",
+            "human_final",
+            "reference",
+            "outcome",
+            "disposition_evidence"
+          ]
+        },
+        "modality": {
+          "enum": [
+            "structured",
+            "text",
+            "document",
+            "image",
+            "audio",
+            "video",
+            "waveform",
+            "model_score",
+            "tool_call",
+            "action",
+            "other"
+          ]
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "restricted",
+            "vendor_controlled",
+            "requires_approval",
+            "not_collected",
+            "not_applicable"
+          ]
+        },
+        "schema_profile": { "type": "string" },
+        "content_ref": { "$ref": "#/$defs/ArtifactContentRef" },
+        "inline_payload": {},
+        "observed_at": { "$ref": "#/$defs/Timestamp" },
+        "subject_ref": { "$ref": "#/$defs/Identifier" },
+        "encounter_ref": { "$ref": "#/$defs/Identifier" },
+        "source_system": { "type": "string" },
+        "data_classification": {
+          "enum": ["synthetic", "deidentified", "limited", "phi", "operational"]
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "SubjectContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subject_ref": { "$ref": "#/$defs/Identifier" },
+        "work_item_ref": { "$ref": "#/$defs/Identifier" }
+      },
+      "anyOf": [
+        { "required": ["subject_ref"] },
+        { "required": ["work_item_ref"] }
+      ]
+    },
+    "EventContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["site_id"],
+      "properties": {
+        "site_id": { "$ref": "#/$defs/Identifier" },
+        "encounter_ref": { "$ref": "#/$defs/Identifier" },
+        "care_setting": { "type": "string" },
+        "service_line": { "type": "string" },
+        "user_role": { "type": "string" },
+        "population_tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "window_start": { "$ref": "#/$defs/Timestamp" },
+        "window_end": { "$ref": "#/$defs/Timestamp" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "ComponentLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component_id", "component_type", "version", "maker"],
+      "properties": {
+        "component_id": { "$ref": "#/$defs/Identifier" },
+        "component_type": {
+          "enum": [
+            "model",
+            "application",
+            "prompt",
+            "rule_set",
+            "knowledge_source",
+            "tool",
+            "adapter",
+            "verifier",
+            "other"
+          ]
+        },
+        "version": { "type": "string", "minLength": 1 },
+        "maker": { "type": "string", "minLength": 1 },
+        "configuration_hash": { "type": "string" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "VerificationEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "event_id",
+            "trace_id",
+            "system_id",
+            "deployment_id",
+            "occurred_at",
+            "received_at",
+            "mode",
+            "workflow_type",
+            "subject",
+            "context",
+            "artifacts",
+            "lineage"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "verification_event" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "event_id": { "$ref": "#/$defs/Identifier" },
+            "trace_id": { "$ref": "#/$defs/Identifier" },
+            "idempotency_key": { "$ref": "#/$defs/Identifier" },
+            "system_id": { "$ref": "#/$defs/Identifier" },
+            "deployment_id": { "$ref": "#/$defs/Identifier" },
+            "policy_hint": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "policy_id": { "$ref": "#/$defs/Identifier" },
+                "policy_version": { "type": "string" }
+              }
+            },
+            "occurred_at": { "$ref": "#/$defs/Timestamp" },
+            "received_at": { "$ref": "#/$defs/Timestamp" },
+            "mode": {
+              "enum": ["validation", "monitoring", "advisory", "interventional"]
+            },
+            "workflow_type": { "type": "string", "minLength": 1 },
+            "subject": { "$ref": "#/$defs/SubjectContext" },
+            "context": { "$ref": "#/$defs/EventContext" },
+            "artifacts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/ArtifactRef" },
+              "contains": {
+                "type": "object",
+                "properties": {
+                  "role": { "enum": ["ai_output", "proposed_action"] }
+                },
+                "required": ["role"]
+              }
+            },
+            "lineage": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/ComponentLineage" }
+            }
+          }
+        }
+      ]
+    },
+    "RequiredArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "required"],
+      "properties": {
+        "role": { "type": "string" },
+        "modalities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "required": { "type": "boolean" },
+        "max_age_seconds": { "type": "integer", "minimum": 0 },
+        "min_count": { "type": "integer", "minimum": 0, "default": 1 }
+      }
+    },
+    "CheckDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "check_pack_id",
+        "check_pack_version",
+        "verification_claim",
+        "decision_mode",
+        "required",
+        "input_roles",
+        "missing_evidence_behavior",
+        "timeout_ms"
+      ],
+      "properties": {
+        "check_id": { "$ref": "#/$defs/Identifier" },
+        "check_pack_id": { "$ref": "#/$defs/Identifier" },
+        "check_pack_version": { "type": "string" },
+        "verification_claim": { "type": "string", "minLength": 1 },
+        "decision_mode": {
+          "enum": [
+            "direct_deterministic",
+            "deterministic_after_extraction",
+            "statistical_calibrated",
+            "clinical_inference_calibrated",
+            "clinical_inference_ordinal"
+          ]
+        },
+        "required": { "type": "boolean" },
+        "input_roles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "claim_contract_refs": { "type": "array", "items": { "$ref": "#/$defs/VersionedRef" } },
+        "authority_bundle_refs": { "type": "array", "items": { "$ref": "#/$defs/VersionedRef" } },
+        "failure_mode_ids": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } },
+        "calibration_ref": { "$ref": "#/$defs/VersionedRef" },
+        "missing_evidence_behavior": { "enum": ["skip_with_limitation", "review_required", "unable_to_verify", "fail_closed"] },
+        "timeout_ms": { "type": "integer", "minimum": 1 },
+        "config": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "DecisionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "when", "verdict"],
+      "properties": {
+        "priority": { "type": "integer", "minimum": 0 },
+        "when": { "type": "object", "minProperties": 1, "additionalProperties": true },
+        "verdict": { "enum": ["pass", "flag", "hold", "unable_to_verify"] },
+        "reason_code": { "type": "string" }
+      }
+    },
+    "DispositionRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "target", "landing_sla_seconds"],
+      "properties": {
+        "action": {
+          "enum": ["record", "notify", "route_review", "request_correction", "escalate", "hold", "block"]
+        },
+        "target": { "type": "string" },
+        "landing_sla_seconds": { "type": "integer", "minimum": 0 },
+        "required_closure_state": {
+          "enum": ["delivered", "reviewed", "acted", "overridden", "closed"]
+        }
+      }
+    },
+    "TruthContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "truth_contract_id",
+        "claim_type",
+        "applies_to_verdicts",
+        "source_roles",
+        "resolution_window_seconds",
+        "sampling"
+      ],
+      "properties": {
+        "truth_contract_id": { "$ref": "#/$defs/Identifier" },
+        "claim_type": { "type": "string" },
+        "applies_to_verdicts": {
+          "type": "array",
+          "items": { "enum": ["pass", "flag", "hold", "unable_to_verify"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "source_roles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "source_strength": {
+          "enum": [
+            "deterministic_authority",
+            "reference_label",
+            "final_clinician_artifact",
+            "independent_adjudication",
+            "downstream_outcome",
+            "approved_proxy"
+          ]
+        },
+        "resolution_window_seconds": { "type": "integer", "minimum": 0 },
+        "sampling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strategy"],
+          "properties": {
+            "strategy": { "enum": ["all", "all_holds", "risk_stratified", "random", "none"] },
+            "rate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "minimum_cases": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "confirmation_rule": { "type": "object", "additionalProperties": true },
+        "owner_role": { "type": "string" }
+      }
+    },
+    "VerificationPolicy": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "policy_id",
+            "policy_version",
+            "system_id",
+            "effective_from",
+            "mode",
+            "intended_use",
+            "deployment_scope",
+            "claim_contract_refs",
+            "authority_bundle_refs",
+            "failure_mode_profile_refs",
+            "required_artifacts",
+            "checks",
+            "decision_table",
+            "dispositions",
+            "truth_contracts",
+            "slo"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "verification_policy" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "policy_id": { "$ref": "#/$defs/Identifier" },
+            "policy_version": { "$ref": "#/$defs/SemVer" },
+            "system_id": { "$ref": "#/$defs/Identifier" },
+            "effective_from": { "$ref": "#/$defs/Timestamp" },
+            "effective_until": { "$ref": "#/$defs/Timestamp" },
+            "mode": {
+              "enum": ["validation", "monitoring", "advisory", "interventional"]
+            },
+            "intended_use": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["summary", "workflow", "population", "permitted", "prohibited"],
+              "properties": {
+                "summary": { "type": "string", "minLength": 1 },
+                "workflow": { "type": "string", "minLength": 1 },
+                "population": { "type": "string", "minLength": 1 },
+                "permitted": { "type": "array", "items": { "type": "string" } },
+                "prohibited": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "deployment_scope": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["deployment_ids", "site_ids"],
+              "properties": {
+                "deployment_ids": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/Identifier" },
+                  "minItems": 1
+                },
+                "site_ids": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/Identifier" },
+                  "minItems": 1
+                },
+                "population_tags": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            },
+            "claim_contract_refs": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/VersionedRef" }
+            },
+            "authority_bundle_refs": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/VersionedRef" }
+            },
+            "failure_mode_profile_refs": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/VersionedRef" }
+            },
+            "required_artifacts": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/RequiredArtifact" }
+            },
+            "checks": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/CheckDefinition" }
+            },
+            "decision_table": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/DecisionRule" }
+            },
+            "dispositions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pass", "flag", "hold", "unable_to_verify"],
+              "properties": {
+                "pass": { "$ref": "#/$defs/DispositionRoute" },
+                "flag": { "$ref": "#/$defs/DispositionRoute" },
+                "hold": { "$ref": "#/$defs/DispositionRoute" },
+                "unable_to_verify": { "$ref": "#/$defs/DispositionRoute" }
+              }
+            },
+            "truth_contracts": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/TruthContract" }
+            },
+            "slo": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["verdict_latency_ms", "fail_behavior"],
+              "properties": {
+                "verdict_latency_ms": { "type": "integer", "minimum": 1 },
+                "fail_behavior": { "enum": ["unable_to_verify", "fail_open", "fail_closed"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "claim_contract_id": { "$ref": "#/$defs/Identifier" },
+        "failure_mode_ids": { "type": "array", "items": { "$ref": "#/$defs/Identifier" } },
+        "location": { "type": "string" },
+        "evidence_artifact_ids": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Identifier" }
+        },
+        "authority_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "CheckResult": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "check_result_id",
+            "event_id",
+            "trace_id",
+            "policy_id",
+            "policy_version",
+            "check_id",
+            "check_pack_id",
+            "check_pack_version",
+            "status",
+            "severity",
+            "claim_type",
+            "clinical_assessment",
+            "assurance",
+            "decision_proof",
+            "findings",
+            "started_at",
+            "completed_at",
+            "latency_ms"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "check_result" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "check_result_id": { "$ref": "#/$defs/Identifier" },
+            "event_id": { "$ref": "#/$defs/Identifier" },
+            "trace_id": { "$ref": "#/$defs/Identifier" },
+            "policy_id": { "$ref": "#/$defs/Identifier" },
+            "policy_version": { "type": "string" },
+            "check_id": { "$ref": "#/$defs/Identifier" },
+            "check_pack_id": { "$ref": "#/$defs/Identifier" },
+            "check_pack_version": { "type": "string" },
+            "status": { "enum": ["pass", "fail", "indeterminate", "error", "skipped"] },
+            "severity": { "enum": ["info", "warning", "high", "critical"] },
+            "claim_type": { "type": "string" },
+            "claim_contract_id": { "$ref": "#/$defs/Identifier" },
+            "clinical_assessment": { "$ref": "#/$defs/ClinicalAssessment" },
+            "assurance": { "$ref": "#/$defs/Assurance" },
+            "decision_proof": { "$ref": "#/$defs/DecisionProof" },
+            "findings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Finding" }
+            },
+            "metrics": { "type": "object", "additionalProperties": { "type": ["number", "integer", "string", "boolean", "null"] } },
+            "limitations": { "type": "array", "items": { "type": "string" } },
+            "started_at": { "$ref": "#/$defs/Timestamp" },
+            "completed_at": { "$ref": "#/$defs/Timestamp" },
+            "latency_ms": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "Verdict": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "verdict_id",
+            "event_id",
+            "trace_id",
+            "policy_id",
+            "policy_version",
+            "verdict",
+            "clinical_assessment",
+            "assurance_summary",
+            "summary",
+            "basis_check_result_ids",
+            "limitations",
+            "required_disposition",
+            "issued_at",
+            "sla_met"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "verdict" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "verdict_id": { "$ref": "#/$defs/Identifier" },
+            "event_id": { "$ref": "#/$defs/Identifier" },
+            "trace_id": { "$ref": "#/$defs/Identifier" },
+            "policy_id": { "$ref": "#/$defs/Identifier" },
+            "policy_version": { "type": "string" },
+            "verdict": { "enum": ["pass", "flag", "hold", "unable_to_verify"] },
+            "clinical_assessment": { "$ref": "#/$defs/ClinicalAssessment" },
+            "assurance_summary": { "$ref": "#/$defs/Assurance" },
+            "summary": { "type": "string", "minLength": 1 },
+            "basis_check_result_ids": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Identifier" },
+              "minItems": 1
+            },
+            "limitations": { "type": "array", "items": { "type": "string" } },
+            "required_disposition": { "$ref": "#/$defs/DispositionRoute" },
+            "issued_at": { "$ref": "#/$defs/Timestamp" },
+            "sla_met": { "type": "boolean" },
+            "supersedes_verdict_id": { "$ref": "#/$defs/Identifier" }
+          }
+        }
+      ]
+    },
+    "Actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_type", "actor_ref"],
+      "properties": {
+        "actor_type": { "enum": ["human", "system", "verifier", "vendor"] },
+        "actor_ref": { "$ref": "#/$defs/Identifier" },
+        "role": { "type": "string" }
+      }
+    },
+    "DispositionEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "disposition_event_id",
+            "verdict_id",
+            "event_id",
+            "state",
+            "occurred_at",
+            "actor"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "disposition_event" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "disposition_event_id": { "$ref": "#/$defs/Identifier" },
+            "verdict_id": { "$ref": "#/$defs/Identifier" },
+            "event_id": { "$ref": "#/$defs/Identifier" },
+            "state": { "enum": ["delivered", "reviewed", "acted", "overridden", "closed", "failed_to_land"] },
+            "occurred_at": { "$ref": "#/$defs/Timestamp" },
+            "actor": { "$ref": "#/$defs/Actor" },
+            "reason": { "type": "string" },
+            "evidence_artifact_ids": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Identifier" }
+            },
+            "sla_met": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "TruthResolution": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "truth_resolution_id",
+            "verdict_id",
+            "event_id",
+            "truth_contract_id",
+            "state",
+            "source_strength",
+            "source_artifact_ids",
+            "evaluated_at"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "truth_resolution" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "truth_resolution_id": { "$ref": "#/$defs/Identifier" },
+            "verdict_id": { "$ref": "#/$defs/Identifier" },
+            "event_id": { "$ref": "#/$defs/Identifier" },
+            "truth_contract_id": { "$ref": "#/$defs/Identifier" },
+            "state": { "enum": ["confirmed", "overturned", "inconclusive", "unresolved"] },
+            "source_strength": {
+              "enum": [
+                "deterministic_authority",
+                "reference_label",
+                "final_clinician_artifact",
+                "independent_adjudication",
+                "downstream_outcome",
+                "approved_proxy",
+                "none"
+              ]
+            },
+            "source_artifact_ids": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Identifier" }
+            },
+            "evaluated_at": { "$ref": "#/$defs/Timestamp" },
+            "resolved_at": { "type": ["string", "null"], "format": "date-time" },
+            "adjudicator": { "$ref": "#/$defs/Actor" },
+            "notes": { "type": "string" },
+            "supersedes_truth_resolution_id": { "$ref": "#/$defs/Identifier" }
+          }
+        }
+      ]
+    },
+    "MetricFraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator", "value"],
+      "properties": {
+        "numerator": { "type": "integer", "minimum": 0 },
+        "denominator": { "type": "integer", "minimum": 0 },
+        "value": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "confidence_interval_low": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "confidence_interval_high": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      }
+    },
+    "PeriodicReport": {
+      "allOf": [
+        { "$ref": "#/$defs/ObjectBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "object_type",
+            "organization_id",
+            "report_id",
+            "system_id",
+            "deployment_ids",
+            "policy_id",
+            "policy_version",
+            "period_start",
+            "period_end",
+            "coverage",
+            "confirmed_validity",
+            "landing",
+            "evc",
+            "truth_debt",
+            "recommendation",
+            "generated_at"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "object_type": { "const": "periodic_report" },
+            "organization_id": { "$ref": "#/$defs/Identifier" },
+            "metadata": { "type": "object", "additionalProperties": true },
+            "report_id": { "$ref": "#/$defs/Identifier" },
+            "system_id": { "$ref": "#/$defs/Identifier" },
+            "deployment_ids": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Identifier" },
+              "minItems": 1
+            },
+            "policy_id": { "$ref": "#/$defs/Identifier" },
+            "policy_version": { "type": "string" },
+            "period_start": { "$ref": "#/$defs/Timestamp" },
+            "period_end": { "$ref": "#/$defs/Timestamp" },
+            "coverage": { "$ref": "#/$defs/MetricFraction" },
+            "confirmed_validity": { "$ref": "#/$defs/MetricFraction" },
+            "landing": { "$ref": "#/$defs/MetricFraction" },
+            "evc": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "truth_debt": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["count", "high_risk_count", "oldest_seconds"],
+              "properties": {
+                "count": { "type": "integer", "minimum": 0 },
+                "high_risk_count": { "type": "integer", "minimum": 0 },
+                "oldest_seconds": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "changes": { "type": "array", "items": { "type": "string" } },
+            "findings": { "type": "array", "items": { "type": "string" } },
+            "recommendation": {
+              "enum": ["continue", "continue_with_conditions", "reconfigure", "re_review", "pause", "retire"]
+            },
+            "generated_at": { "$ref": "#/$defs/Timestamp" },
+            "signed_by": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Actor" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
