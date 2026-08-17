@@ -483,6 +483,13 @@ QSOFA_INPUTS = ["Resp", "SBP", "GCS"]          # GCS is not collected in this st
 ORGAN_INPUTS = ["Lactate", "Creatinine", "Platelets", "MAP"]
 CLINICAL_INPUTS = sorted(set(SIRS_INPUTS + QSOFA_INPUTS + ORGAN_INPUTS))
 
+# Components no stream of this shape can supply. Counting them in the
+# denominator would report a coverage gap the hospital cannot close, and would
+# push every event to unable_to_verify for a reason nobody can act on. They are
+# named in the authority's limitations instead.
+NEVER_COLLECTED = {"GCS"}
+OBTAINABLE_INPUTS = [c for c in CLINICAL_INPUTS if c not in NEVER_COLLECTED]
+
 # A screening view is only formed when enough of it can be evaluated. Below this
 # the check returns unable_to_verify.
 MIN_CLINICAL_COVERAGE = 0.5
@@ -766,8 +773,12 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
     # rate would be our opinion wearing an authority's name. SIRS and the organ
     # markers are reported beside it as context, and do not trigger on their own.
     # Measured burden on this deployment: it fires on 5.9% of silent patient-hours.
-    coverage_seen = s_seen + q_seen + o_seen
-    coverage_total = len(SIRS_INPUTS) + len(QSOFA_INPUTS) + len(ORGAN_INPUTS)
+    # Coverage is over distinct obtainable components. Summing the three
+    # criteria sets counts respiratory rate twice, because it appears in both
+    # SIRS and qSOFA, and counts a GCS this stream never carries.
+    coverage_total = len(OBTAINABLE_INPUTS)
+    coverage_seen = sum(1 for n in OBTAINABLE_INPUTS
+                        if fresh.get(n, (None, None))[0] is not None)
     coverage = coverage_seen / coverage_total
     qsofa_evaluable = q_seen >= 2
     screen_positive = q_met >= 2

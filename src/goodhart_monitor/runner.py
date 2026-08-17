@@ -182,7 +182,8 @@ def run(m: Manifest, out_dir: Path, record_id: str = "GHM-LOCAL",
 
         og = obs_by_subject.get(sub)
         vitals: dict[str, tuple[float | None, float | None]] = {}
-        for code in C.REQUIRED_VITALS + ["Temp"]:
+        # everything any check pack can use, not only the bedside four
+        for code in sorted(set(C.REQUIRED_VITALS) | set(C.OBTAINABLE_INPUTS)):
             v = a = None
             if og is not None:
                 cut = og[(og["code"] == code) & (og["obs_at"] <= rec.at)]

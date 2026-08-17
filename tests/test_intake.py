@@ -95,11 +95,15 @@ def test_run_produces_a_validated_api(tmp_path, export):
         assert (tmp_path / "api" / "events" / f"{row['event_id']}.json").exists()
 
 
-def test_landing_is_none_without_an_action_export(tmp_path, export):
+def test_landing_is_zero_when_the_review_queue_is_unstaffed(tmp_path, export):
+    """Flags route to review, so Landing has a denominator. Nothing closes it,
+    so the rate is 0 and EVC is 0. An unstaffed queue is a measurement, not a
+    missing measurement."""
     res = runner.run(intake.load(export), tmp_path / "api")
-    assert res["landing"]["denominator"] == 0
-    assert res["landing"]["value"] is None
-    assert res["evc"] is None
+    assert res["landing"]["denominator"] > 0
+    assert res["landing"]["numerator"] == 0
+    assert res["landing"]["value"] == 0.0
+    assert res["evc"] == 0.0
 
 
 def test_validity_is_none_without_an_outcome_export(tmp_path):
