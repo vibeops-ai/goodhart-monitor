@@ -3,7 +3,12 @@
 # 40,336 patients as one .psv per patient, two real hospital systems (A and B).
 # Idempotent: skips files already present and non-empty.
 set -euo pipefail
-cd "$(dirname "$0")/../../data"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+mkdir -p "$ROOT/data"
+cd "$ROOT/data"
+for S in A B; do
+  [ -s "index_set$S.txt" ] || { echo "missing index_set$S.txt; it ships with the repo" >&2; exit 1; }
+done
 BASE=https://physionet.org/files/challenge-2019/1.0.0/training
 for S in A B; do
   mkdir -p "set$S"

@@ -1,4 +1,6 @@
 data/
+!data/index_setA.txt
+!data/index_setB.txt
 .venv/
 __pycache__/
 out/*.parquet
