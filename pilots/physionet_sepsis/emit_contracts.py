@@ -232,38 +232,37 @@ def main() -> int:
             oldest = max(ages) if ages else None
             state, strength, resolved = ("confirmed", "deterministic_authority",
                                          ts(hour))
-            notes = (f"re-derived from the input: oldest required observation "
-                     f"{oldest:.0f}h old against a policy limit of 6h"
+            notes = (f"re-derived: oldest required observation {oldest:.0f}h, "
+                     f"limit 6h"
                      if oldest is not None else
-                     "re-derived from the input: the flagged condition is present")
+                     "re-derived: flagged condition present in the input")
         elif not mature:
             state, strength, notes, resolved = (
                 "unresolved", "none",
-                f"outcome window matures at ICU hour {horizon}; the stay ends at "
+                f"outcome window matures at ICU hour {horizon}, stay ends at "
                 f"{stay_end}", None)
         elif tc == "tc.alert-outcome":
             if row.onset is None:
                 state, strength, resolved = "overturned", "reference_label", ts(stay_end)
-                notes = "no adjudicated sepsis onset in this stay"
+                notes = "no adjudicated onset in this stay"
             elif row.first_alert is not None and row.first_alert < row.onset:
                 state, strength, resolved = "confirmed", "reference_label", ts(row.onset)
-                notes = (f"onset at ICU hour {row.onset}; first alert at "
-                         f"{row.first_alert}, {row.onset - row.first_alert}h earlier")
+                notes = (f"first alert ICU hour {row.first_alert}, onset "
+                         f"{row.onset}, lead {row.onset - row.first_alert}h")
             else:
                 state, strength, resolved = "overturned", "reference_label", ts(row.onset)
-                notes = (f"first alert at ICU hour {row.first_alert} did not precede "
-                         f"onset at {row.onset}: case finding, not prediction")
+                notes = (f"first alert ICU hour {row.first_alert}, onset "
+                         f"{row.onset}. Case finding.")
         else:
             if row.onset is not None and row.first_alert is None:
                 state, strength, resolved = "overturned", "reference_label", ts(row.onset)
-                notes = (f"adjudicated onset at ICU hour {row.onset} with no alert on "
-                         f"this stay")
+                notes = f"onset ICU hour {row.onset}, no alert on this stay"
             elif row.onset is not None and hour < row.onset and row.first_alert is None:
                 state, strength, resolved = "overturned", "reference_label", ts(row.onset)
-                notes = "onset followed with no alert"
+                notes = "onset followed, no alert"
             else:
                 state, strength, resolved = "confirmed", "reference_label", ts(min(horizon, stay_end))
-                notes = "no adjudicated onset followed without an alert"
+                notes = "no onset within the window"
 
         truths.append(validate({
             **base("truth_resolution"),
@@ -321,18 +320,15 @@ def main() -> int:
                        "oldest_seconds": RESOLUTION_HOURS * 3600},
         "changes": ["no model, prompt, threshold or policy change in this period"],
         "findings": [
-            "Landing is not applicable: this deployment runs in monitoring mode and "
-            "no clinical review destination is connected, so no verdict is actionable. "
-            "EVC is withheld rather than computed from a missing factor.",
-            "Vendor claim M-4, that performance generalises to new hospital systems, "
-            "carries no number and produced no Claim Contract. It is registered as "
-            "untestable.",
-            f"Local discrimination is {record['sections']['acceptance']['measured_auroc']} "
-            f"against a card claim of {record['sections']['acceptance']['card_value']}; "
-            f"the acceptance section of record GHM-0001 FAILS.",
-            f"Alert precision is {record['sections']['work']['row_level_ppv']} against a "
-            f"card claim of {record['sections']['work']['card_value']}; the work section "
-            f"FAILS.",
+            f"Local AUROC {record['sections']['acceptance']['measured_auroc']} against "
+            f"card {record['sections']['acceptance']['card_value']}. Acceptance FAILS in "
+            f"record GHM-0001.",
+            f"Alert precision {record['sections']['work']['row_level_ppv']} against card "
+            f"{record['sections']['work']['card_value']}. Work FAILS.",
+            "Landing has no denominator. Monitoring mode with no review destination "
+            "connected leaves zero actionable verdicts. EVC withheld.",
+            "Card claim M-4 carries no number. No Claim Contract issued.",
+            f"{len(due)} verdicts await a mature outcome window.",
         ],
         "recommendation": "continue_with_conditions",
         "generated_at": ts(24 * 7),

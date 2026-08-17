@@ -69,16 +69,15 @@ def claim_contracts(card: dict) -> list[dict]:
     """
     claims = {c["id"]: c for c in card["claims"]}
     reference = {
-        "description": "Sepsis-3 onset as adjudicated by the PhysioNet/CinC 2019 "
-                       "challenge label, which is positioned six hours before "
+        "description": "PhysioNet/CinC 2019 Sepsis-3 label, shifted 6h ahead of "
                        "clinical onset",
         "source_roles": ["outcome"],
-        "adjudication_method": "corpus reference label; no local re-adjudication",
+        "adjudication_method": "corpus reference label, no local re-adjudication",
         "maturity_window_seconds": 6 * 3600,
         "authority_refs": [ref("auth.sepsis3-cinc2019", "1.0.0")],
         "limitations": [
-            "the label is the corpus's, not this hospital's chart review",
-            "label timing is defined by the challenge, not by a local protocol",
+            "corpus label; no local chart review",
+            "label timing set by the challenge",
         ],
     }
     out = [
@@ -89,18 +88,18 @@ def claim_contracts(card: dict) -> list[dict]:
             "system_id": SYSTEM_ID,
             "vendor_claim": claims["M-1"]["text"],
             "normalized_claim": (
-                "Ranking of adult ICU patient-hours by sepsis risk achieves AUROC "
-                f"at or above {claims['M-1']['value']} on the deployment population"),
+                f"AUROC at or above {claims['M-1']['value']} on adult ICU "
+                f"patient-hours at this site"),
             "claim_kind": "prognostic_prediction",
             "clinical_endpoint": "Sepsis-3 onset during the ICU stay",
-            "decision_timepoint": "each ICU hour, using observations at or before that hour",
+            "decision_timepoint": "each ICU hour, observations up to that hour",
             "intended_population": "adult ICU stays at the deployment site",
             "intended_inputs": ["hourly vitals", "laboratory results", "demographics"],
             "output_semantics": "continuous risk score in [0,1] for sepsis onset",
             "performance_requirements": [
                 {"metric": "auroc", "operator": "gte", "target": claims["M-1"]["value"],
                  "confidence_level": 0.95,
-                 "notes": "measured locally with a bootstrap over patients, not rows"}],
+                 "notes": "local estimate, bootstrap over patients"}],
             "reference_standard": reference,
             "effective_from": ts(0),
             "approved_by_role": "chief_health_ai_officer",
@@ -112,14 +111,14 @@ def claim_contracts(card: dict) -> list[dict]:
             "system_id": SYSTEM_ID,
             "vendor_claim": claims["M-3"]["text"],
             "normalized_claim": (
-                f"At the shipped threshold, at least {claims['M-3']['value']:.0%} of "
-                "alerting patient-hours belong to a stay with adjudicated sepsis"),
+                f"At the shipped threshold, {claims['M-3']['value']:.0%} or more of "
+                f"alerting patient-hours fall in a stay with adjudicated sepsis"),
             "claim_kind": "diagnostic_detection",
             "clinical_endpoint": "Sepsis-3 onset during the ICU stay",
             "decision_timepoint": "the hour the alert fires",
             "intended_population": "adult ICU stays at the deployment site",
             "intended_inputs": ["hourly vitals", "laboratory results"],
-            "output_semantics": "binary alert produced when the score reaches the shipped threshold",
+            "output_semantics": "alert when the score reaches the shipped threshold",
             "performance_requirements": [
                 {"metric": "ppv", "operator": "gte", "target": claims["M-3"]["value"],
                  "confidence_level": 0.95}],
@@ -134,17 +133,16 @@ def claim_contracts(card: dict) -> list[dict]:
             "system_id": SYSTEM_ID,
             "vendor_claim": claims["M-2"]["text"],
             "normalized_claim": (
-                "Among stays the system alerts on, the first alert precedes "
-                "adjudicated onset in the majority of cases"),
+                "First alert precedes adjudicated onset in most alerting stays"),
             "claim_kind": "prognostic_prediction",
-            "clinical_endpoint": "time between first alert and adjudicated Sepsis-3 onset",
+            "clinical_endpoint": "hours from first alert to adjudicated Sepsis-3 onset",
             "decision_timepoint": "the hour of the first alert for a stay",
             "intended_population": "adult ICU stays that alert at the shipped threshold",
             "intended_inputs": ["hourly vitals", "laboratory results"],
-            "output_semantics": "hours between first alert and onset; positive means warning",
+            "output_semantics": "hours from first alert to onset, positive means early",
             "performance_requirements": [
                 {"metric": "lead_time", "operator": "gte", "target": 0.0,
-                 "notes": "a non-positive lead time is case finding, not prediction"}],
+                 "notes": "zero or below is case finding"}],
             "reference_standard": reference,
             "effective_from": ts(0),
             "approved_by_role": "chief_health_ai_officer",
@@ -162,21 +160,20 @@ def authority_bundle() -> dict:
         "sources": [
             {"authority_id": "auth.sepsis3-cinc2019", "authority_version": "1.0.0",
              "authority_type": "reference_dataset",
-             "title": "PhysioNet/CinC 2019 sepsis label definition (Sepsis-3 derived)",
+             "title": "PhysioNet/CinC 2019 Sepsis-3 label definition",
              "uri": "https://physionet.org/content/challenge-2019/1.0.0/",
              "effective_from": ts(0),
              "approved_by_role": "chief_health_ai_officer",
-             "limitations": ["label is shifted six hours before clinical onset by the "
-                             "challenge organisers"]},
+             "limitations": ["label shifted 6h ahead of clinical onset"]},
             {"authority_id": "auth.vitals-ranges", "authority_version": "1.0.0",
              "authority_type": "validated_rule_set",
              "title": "Physiologic plausibility ranges for adult ICU vital signs",
              "effective_from": ts(0),
              "approved_by_role": "clinical_owner",
-             "limitations": ["ranges are screening bounds, not clinical judgement"]},
+             "limitations": ["screening bounds only"]},
             {"authority_id": "auth.local-freshness", "authority_version": "1.0.0",
              "authority_type": "hospital_policy",
-             "title": "Maximum observation age permitted for an autonomous risk score",
+             "title": "Maximum observation age for a risk score",
              "effective_from": ts(0),
              "approved_by_role": "clinical_owner",
              "local_override": True},
@@ -203,32 +200,32 @@ def failure_mode_profile() -> dict:
         "authority_bundle_refs": [ref("ab.sepsis-w2", "1.0.0")],
         "failure_modes": [
             fm("fm.missing-vitals", "missing_input",
-               "the score was produced with one or more required vital signs absent",
+               "score produced with a required vital sign absent",
                "high", "unable_to_verify"),
             fm("fm.stale-vitals", "stale_input",
-               "the most recent required observation is older than local policy allows",
+               "most recent required observation exceeds the policy age limit",
                "warning", "flag"),
             fm("fm.implausible-value", "corrupt_input",
-               "an input falls outside physiologic screening bounds",
+               "input outside physiologic screening bounds",
                "high", "flag"),
             fm("fm.out-of-population", "out_of_distribution",
-               "the patient falls outside the approved population for this claim",
+               "patient outside the approved population",
                "high", "unable_to_verify"),
             fm("fm.threshold-drift", "threshold_error",
-               "the operating threshold in the event does not match the approved policy",
+               "operating threshold differs from the approved policy",
                "critical", "hold", roles=("ai_output",)),
             fm("fm.false-negative", "false_negative",
-               "no alert was produced for a stay with adjudicated sepsis onset",
+               "no alert on a stay with adjudicated sepsis onset",
                "critical", "review", roles=("outcome",)),
             fm("fm.false-positive", "false_positive",
-               "an alert fired for a stay with no adjudicated sepsis onset",
+               "alert on a stay with no adjudicated sepsis onset",
                "warning", "review", roles=("outcome",)),
             fm("fm.late-alert", "false_negative",
-               "the first alert for a stay fired at or after adjudicated onset",
+               "first alert at or after adjudicated onset",
                "high", "review", roles=("outcome",)),
             fm("fm.subgroup-gap", "subgroup_gap",
-               "discrimination in an approved subgroup falls materially below the "
-               "population estimate", "warning", "review", roles=("context",)),
+               "subgroup discrimination below the population estimate",
+               "warning", "review", roles=("context",)),
         ],
         "effective_from": ts(0),
         "approved_by_role": "clinical_owner",
@@ -238,37 +235,37 @@ def failure_mode_profile() -> dict:
 CHECKS = [
     {"check_id": "chk.input-completeness", "check_pack_id": "cp.structured-input",
      "check_pack_version": "1.0.0",
-     "verification_claim": "every input the approved claim requires was present when the score was produced",
+     "verification_claim": "all required inputs present at score time",
      "decision_mode": "direct_deterministic", "required": True,
      "input_roles": ["source_input"], "failure_mode_ids": ["fm.missing-vitals"],
      "missing_evidence_behavior": "unable_to_verify", "timeout_ms": 250},
     {"check_id": "chk.input-freshness", "check_pack_id": "cp.structured-input",
      "check_pack_version": "1.0.0",
-     "verification_claim": "no required observation is older than local policy allows",
+     "verification_claim": "no required observation past the policy age limit",
      "decision_mode": "direct_deterministic", "required": True,
      "input_roles": ["source_input"], "failure_mode_ids": ["fm.stale-vitals"],
      "missing_evidence_behavior": "review_required", "timeout_ms": 250},
     {"check_id": "chk.input-plausibility", "check_pack_id": "cp.structured-input",
      "check_pack_version": "1.0.0",
-     "verification_claim": "inputs fall inside physiologic screening bounds",
+     "verification_claim": "inputs within physiologic screening bounds",
      "decision_mode": "direct_deterministic", "required": True,
      "input_roles": ["source_input"], "failure_mode_ids": ["fm.implausible-value"],
      "missing_evidence_behavior": "skip_with_limitation", "timeout_ms": 250},
     {"check_id": "chk.population-scope", "check_pack_id": "cp.scope",
      "check_pack_version": "1.0.0",
-     "verification_claim": "the patient is inside the approved population for this claim",
+     "verification_claim": "patient within the approved population",
      "decision_mode": "direct_deterministic", "required": True,
      "input_roles": ["context"], "failure_mode_ids": ["fm.out-of-population"],
      "missing_evidence_behavior": "unable_to_verify", "timeout_ms": 100},
     {"check_id": "chk.threshold-replay", "check_pack_id": "cp.scope",
      "check_pack_version": "1.0.0",
-     "verification_claim": "the alert decision replays exactly from the score and the approved threshold",
+     "verification_claim": "alert decision replays from score and approved threshold",
      "decision_mode": "direct_deterministic", "required": True,
      "input_roles": ["ai_output"], "failure_mode_ids": ["fm.threshold-drift"],
      "missing_evidence_behavior": "fail_closed", "timeout_ms": 100},
     {"check_id": "chk.alert-support", "check_pack_id": "cp.predictive",
      "check_pack_version": "1.0.0",
-     "verification_claim": "an alert at this operating point is supported by locally measured precision",
+     "verification_claim": "alert supported by locally measured precision",
      "decision_mode": "statistical_calibrated", "required": False,
      "input_roles": ["ai_output", "context"],
      "failure_mode_ids": ["fm.false-positive"],
@@ -305,7 +302,7 @@ def verification_policy(threshold: float, cfg) -> dict:
         "mode": "monitoring",
         "intended_use": {
             "summary": "Hourly sepsis risk scoring for adult medical ICU patients",
-            "workflow": "score written to the chart; no automated order or page",
+            "workflow": "score written to the chart, no automated order or page",
             "population": "adult ICU stays, age 18 and over, medical ICU",
             "permitted": ["display a risk score to the care team",
                           "populate a surveillance worklist"],
@@ -465,12 +462,12 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
                     len(REQUIRED_VITALS) - len(missing),
                     [f"source_input:{m}" for m in missing]),
          _proof("m.completeness", [art_in], [], [ref("rule.required-vitals", "1.0.0")],
-                "every required vital has a value at or before this hour"
+                "all required vitals have a value at or before this hour"
                 if not missing else f"absent: {', '.join(missing)}",
                 {"missing": missing}),
          findings=[] if not missing else [
              {"code": "MISSING_REQUIRED_INPUT",
-              "message": f"required inputs absent: {', '.join(missing)}",
+              "message": f"absent: {', '.join(missing)}",
               "claim_contract_id": "cc.alert-precision",
               "failure_mode_ids": ["fm.missing-vitals"],
               "evidence_artifact_ids": [art_in]}])
@@ -485,12 +482,12 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
          _assurance("direct_deterministic", 1, 1, []),
          _proof("m.freshness", [art_in], [ref("auth.local-freshness", "1.0.0")],
                 [ref("rule.max-observation-age", "1.0.0")],
-                f"oldest required observation {oldest}h old, policy allows {MAX_AGE_HOURS}h"
+                f"oldest required observation {oldest}h, limit {MAX_AGE_HOURS}h"
                 if oldest is not None else "no observation ages available",
                 {"oldest_hours": oldest}),
          findings=[] if not stale else [
              {"code": "STALE_INPUT",
-              "message": f"oldest required observation is {oldest:.0f}h old",
+              "message": f"oldest required observation {oldest:.0f}h, limit {MAX_AGE_HOURS}h",
               "failure_mode_ids": ["fm.stale-vitals"],
               "evidence_artifact_ids": [art_in]}],
          metrics={"oldest_observation_hours": oldest} if oldest is not None else None)
@@ -509,10 +506,10 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
          _assurance("direct_deterministic", 1, 1, []),
          _proof("m.plausibility", [art_in], [ref("auth.vitals-ranges", "1.0.0")],
                 [ref("rule.physiologic-bounds", "1.0.0")],
-                "all present inputs inside screening bounds" if not bad
+                "all present inputs within bounds" if not bad
                 else f"outside bounds: {', '.join(bad)}", {"bad": bad}),
          findings=[] if not bad else [
-             {"code": "IMPLAUSIBLE_INPUT", "message": f"outside screening bounds: {', '.join(bad)}",
+             {"code": "IMPLAUSIBLE_INPUT", "message": f"outside bounds: {', '.join(bad)}",
               "failure_mode_ids": ["fm.implausible-value"],
               "evidence_artifact_ids": [art_in]}])
 
@@ -523,11 +520,11 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
          "clinically_corroborated" if in_scope else "unable_to_verify",
          _assurance("direct_deterministic", 1, 1, []),
          _proof("m.scope", [art_ctx], [], [ref("rule.approved-population", "1.0.0")],
-                f"age {row.age:.0f}, approved population is adult ICU",
+                f"age {row.age:.0f}, approved population adult ICU",
                 {"age": row.age}),
          findings=[] if in_scope else [
              {"code": "OUT_OF_POPULATION",
-              "message": "patient is outside the approved population for this claim",
+              "message": "patient outside the approved population",
               "failure_mode_ids": ["fm.out-of-population"],
               "evidence_artifact_ids": [art_ctx]}])
 
@@ -551,18 +548,16 @@ def run_checks(row: Row, thr: float, entity_ppv: float, event_id: str,
                         calibration_status="local_validated",
                         calibration_ref=ref("cal.record-ghm-0001", "1.0.0"),
                         limitations=[
-                            "precision is a population property; it does not establish "
-                            "that this patient has sepsis",
-                            "the outcome for this stay is not yet mature"]),
+                            "population precision; says nothing about this patient",
+                            "outcome for this stay is not yet mature"]),
              _proof("m.alert-support", [art_out, art_ctx],
                     [ref("auth.sepsis3-cinc2019", "1.0.0")],
                     [ref("rule.local-precision", "1.0.0")],
-                    f"locally measured entity precision at this threshold is "
-                    f"{entity_ppv:.1%}; the outcome for this stay is not yet known",
+                    f"local precision at this threshold {entity_ppv:.1%}, "
+                    f"outcome for this stay unknown",
                     {"entity_ppv": entity_ppv}),
              findings=[{"code": "ALERT_REQUIRES_REVIEW",
-                        "message": "alert issued; supported by local precision but not "
-                                   "resolvable at score time",
+                        "message": "alert issued, outcome unresolvable at score time",
                         "claim_contract_id": "cc.alert-precision",
                         "failure_mode_ids": ["fm.false-positive"],
                         "evidence_artifact_ids": [art_out]}],
@@ -613,12 +608,12 @@ def compose(results: list[dict], policy: dict, event_id: str, trace_id: str,
     present = sum(c["present_count"] for c in cov)
     missing = sorted({m for c in cov for m in c["missing_roles"]})
 
+    msgs = "; ".join(f["message"] for r in results for f in r["findings"])
     summaries = {
         "pass": "No violation in checked scope.",
-        "flag": "Review required: " + "; ".join(
-            f["message"] for r in results for f in r["findings"]) or "review required",
-        "hold": "Policy violation; output withheld pending action.",
-        "unable_to_verify": "Required evidence for this claim was not available.",
+        "flag": msgs or "Review required.",
+        "hold": "Policy violation. Output withheld.",
+        "unable_to_verify": msgs or "Required evidence unavailable.",
     }
     limits = sorted({l for r in results for l in r.get("limitations", [])})
 

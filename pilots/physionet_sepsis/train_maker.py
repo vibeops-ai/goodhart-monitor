@@ -95,7 +95,7 @@ def main() -> int:
             {"id": "M-3", "text": f"~{ppv:.0%} of alerts are true at the shipped threshold",
              "value": round(float(ppv), 4), "population": "vendor dev set"},
             {"id": "M-4", "text": "performance generalises to new hospital systems",
-             "value": None, "detail": "asserted, not measured, as is customary"},
+             "value": None, "detail": "no supporting measurement provided"},
         ],
         "shipped_threshold": thr,
         "dev_auprc": round(float(auprc), 4),
