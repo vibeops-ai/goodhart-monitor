@@ -1,10 +1,10 @@
 """TIMING — does it warn before the event, or notice it afterwards?
 
-This is the claim class the Epic sepsis model card got wrong, and the reason
-Singh's group published. From the podcast: "the tool is great at case finding,
-finding cases after the fact. It doesn't seem to be great at predicting it
-before it happens... the original model card said this predicts sepsis before
-it happens."
+This is the claim class the Epic sepsis model card got wrong. External
+validation found a tool that was good at case finding, identifying patients
+after the fact, while the card described prediction before onset (Wong et al.,
+External Validation of a Widely Implemented Proprietary Sepsis Prediction
+Model, JAMA Intern Med 2021).
 
 The section reports the long leads and the short ones separately on purpose. A
 median lead of forty hours sounds magnificent and is often an early-stay alert

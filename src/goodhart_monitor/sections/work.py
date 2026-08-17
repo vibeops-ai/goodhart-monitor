@@ -1,7 +1,7 @@
 """WORK — what work does the alert stream create, and is that work valuable?
 
-Singh's central question, and the one no vendor card answers: "What work does
-this model create, and is that work valuable enough to justify the burden?"
+The question no vendor card answers: what work does this model create, and is
+that work valuable enough to justify the burden?
 
 Two counting decisions here are the difference between an honest section and a
 flattering one, and both were wrong in the first version of this checker:
@@ -127,8 +127,9 @@ def work(stream: ScoredStream, card: ModelCard, cfg: Config,
         "tolerance_fraction": cfg.ppv_tolerance_fraction,
         "verdict": verdict,
         "why": why,
-        "note": "entities-evaluated-per-actionable-catch is Singh's number "
-                "(Michigan's Epic sepsis model needed 8). Only a first alert "
+        "note": "entities evaluated per actionable catch is the operational "
+                "unit; the Epic sepsis model needed 8 at Michigan (Wong et al., "
+                "JAMA Intern Med 2021). Only a first alert "
                 "before onset counts as a catch. Read it beside the sensitivity: "
                 "a threshold can buy a flattering ratio by refusing to alert, and "
                 "no card mentions that trade",

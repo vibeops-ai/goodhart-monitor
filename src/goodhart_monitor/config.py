@@ -6,9 +6,10 @@ They are policy, they belong to the committee, and the record carries the exact
 values that produced it so a reader can disagree with the policy rather than
 having to reverse-engineer it.
 
-Defaults come from what the two buyers said out loud: Tignanelli's "5%
-deterioration in the AUROC triggers review", and Singh's insistence that alert
-burden be counted, not asserted.
+Defaults follow two positions from the published literature and from
+interviews with health-system AI oversight chairs: a fixed deterioration in
+discrimination should trigger review, and alert burden should be counted rather
+than asserted.
 """
 from __future__ import annotations
 

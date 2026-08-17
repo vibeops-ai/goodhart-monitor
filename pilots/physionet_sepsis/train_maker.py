@@ -11,7 +11,7 @@ Every number in the card is real. That is the point of the exercise: the card
 is not a lie, and the checker will still find that three of its five claims do
 not survive contact with a hospital the model has never seen. That gap — true
 numbers, wrong implications — is the thing GoodHart sells the measurement of,
-and it is exactly the gap Singh found in the Epic sepsis model card.
+and it is the gap external validation found in the Epic sepsis model card.
 """
 from __future__ import annotations
 

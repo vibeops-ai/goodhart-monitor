@@ -21,12 +21,11 @@ INDETERMINATE · 3 the inputs are not verifiable.
 
 ## Why the input is the output stream and not the model
 
-Tignanelli, on the structured-data path: the scores are already in Epic, so
-there is nothing to negotiate with the vendor. Singh, on what the committee
-actually needs: "come with your own data, and not simply rely on the data
-given to you by the vendor." A checker that needs the vendor's artifact is a
-checker the vendor can decline. This one cannot be declined, because the
-hospital already has everything it consumes.
+On the structured-data path the scores are already in the EHR, so there is
+nothing to negotiate with the vendor. The committee's own question is whether a
+number holds on their population, measured with their data. A checker that needs
+the vendor's artifact is a checker the vendor can decline. This one cannot be
+declined, because the hospital already has everything it consumes.
 
 ## The input contract
 
@@ -84,6 +83,11 @@ verdict can disagree with the policy rather than reverse-engineer it.
       cli.py                 verify · validate
     pilots/physionet_sepsis/ a demonstration, not the product
     tests/                   84 tests, including the two miscounts that shipped in v0
+
+## Corpus and licence
+
+The pilot runs on PhysioNet/CinC 2019, Open Access. See CORPUS.md for what is
+recorded, what is derived, and how to reproduce the record. Code is MIT.
 
 ## The pilot in this repo
 

@@ -5,12 +5,13 @@
 # disagree with the threshold that produced it instead of guessing at it.
 #
 # Sources for the defaults chosen here:
-#   drift.auroc_drop  Tignanelli, on what should trigger a review: a 5%
-#                     deterioration in the AUROC.
-#   work.*            Singh, on alert burden: count patients evaluated per true
-#                     case rather than asserting a PPV. Epic's sepsis model
-#                     needed 8. Anything the hospital will not staff is a FAIL
-#                     regardless of how good the discrimination looks.
+#   drift.auroc_drop  a stated deterioration in discrimination should trigger
+#                     an internal review. 5% is a common committee choice.
+#   work.*            count patients evaluated per true case rather than
+#                     asserting a PPV. The Epic sepsis model needed 8 at
+#                     Michigan (Wong et al., JAMA Intern Med 2021). Anything the
+#                     hospital will not staff is a FAIL regardless of how good
+#                     the discrimination looks.
 
 [record]
 id = "GHM-0001"

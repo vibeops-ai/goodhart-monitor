@@ -1,9 +1,10 @@
 """DRIFT — windowed performance against explicit review thresholds.
 
-Tignanelli, on what nobody sells: "having some real time model performance
-benchmarks with some thresholds — hey, there's been 5% deterioration in the
-AUROC for example — that triggers some sort of internal review... that's
-missing." His team re-validates by hand every three months across 70+ models.
+Health-system oversight committees re-validate deployed models by hand on a
+quarterly cycle, across portfolios that now run to dozens of systems. What they
+ask for and cannot buy is a performance benchmark with a threshold attached, so
+that a stated deterioration in discrimination triggers an internal review
+instead of a calendar reminder.
 
 The baseline is local, and that decision is the section. Measuring each window
 against the vendor's card re-reports the acceptance gap once per window and

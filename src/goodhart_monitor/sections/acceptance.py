@@ -1,7 +1,7 @@
 """ACCEPTANCE — does the card's headline number hold on this population?
 
-Singh: "it'd be great to come with your own data, and not simply rely on the
-data given to you by the vendor to say, look, it's working great."
+The committee's first question about any vendor number: does it hold on our
+population, measured with our data rather than the vendor's.
 
 The whole section is one comparison, but the comparison is the product. A card
 number is measured on the vendor's population; this one is measured on yours,

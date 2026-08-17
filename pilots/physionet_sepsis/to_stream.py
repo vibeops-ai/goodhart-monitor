@@ -3,9 +3,9 @@
 This is the only step in the pilot that needs the vendor's model, and it is
 deliberately on the pilot side of the wall, not in the product. A real hospital
 never runs this: the scores are already in the EHR, written there by whatever
-the vendor deployed, and the checker reads them out. Chris was explicit that
-the score is logged per patient-hour, and Singh's whole argument is that
-verifying the output stream is what makes the check independent of the vendor.
+the vendor deployed, and the checker reads them out. The score is already
+logged per patient-hour, and verifying that output stream rather than the model
+behind it is what makes the check independent of the vendor.
 
 Here we simulate that log by scoring hospital B once with the shipped maker and
 writing exactly the six columns the contract asks for. Nothing else crosses:
