@@ -113,7 +113,7 @@ def test_validity_is_none_without_an_outcome_export(tmp_path):
     assert res["validity"]["denominator"] == 0
     assert res["validity"]["value"] is None
     assert res["evc"] is None
-    assert any("no outcome export" in f.lower() or "Confirmed Validity" in f
+    assert any("Coverage counts outputs the verifier received" in f
                for f in res["report"]["findings"])
 
 
@@ -128,3 +128,33 @@ def test_two_thresholds_in_one_export_are_refused(tmp_path, export):
     with pytest.raises(SystemExit) as e:
         runner.run(intake.load(export), tmp_path / "api")
     assert "more than one threshold" in str(e.value)
+
+
+# ------------------------------------------------ product-path parity
+def test_runner_uses_the_same_metric_code_as_the_pilot(tmp_path, export):
+    """The library and the demonstration must compute metrics identically. A
+    demonstration with better methodology than the library is two products."""
+    res = runner.run(intake.load(export), tmp_path / "api")
+    md = res["report"]["metadata"]
+    for key in ("validity_basis", "validity_per_event", "validity_decomposition",
+                "validity_counting_inconclusive_as_missed", "concentration",
+                "events_excluded_outside_period", "coverage_denominator"):
+        assert key in md, f"{key} missing from the runner's report"
+    assert res["report"]["confirmed_validity"]["denominator"] > 0
+    assert md["validity_basis"].startswith("per patient")
+
+
+def test_landing_requires_the_closure_state_the_policy_demands(tmp_path, export):
+    """An auto-close job must not be able to move Landing. The policy asks for
+    'reviewed' on a flag; a 'delivered' event alone must not count."""
+    from goodhart_monitor import periodic
+    m = intake.load(export)
+    res = runner.run(m, tmp_path / "api")
+    import json
+    idx = json.loads((tmp_path / "api" / "index.json").read_text())
+    flagged = [r for r in idx["rows"] if r["verdict"] == "flag"]
+    assert flagged, "expected some flags in the synthetic export"
+    # every flag was delivered, none reviewed
+    assert all(r["disposition"] == "delivered" for r in flagged)
+    assert res["landing"]["denominator"] == len(flagged)
+    assert res["landing"]["numerator"] == 0

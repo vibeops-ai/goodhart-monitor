@@ -20,6 +20,7 @@ import pandas as pd
 
 from . import contracts as C
 from .contracts import Row, base, ref
+from . import periodic
 from .intake import Manifest, ROLES
 
 RESOLUTION_HOURS = 48
@@ -353,7 +354,11 @@ def run(m: Manifest, out_dir: Path, record_id: str = "GHM-LOCAL",
     return res
 
 
-def _write_api(m, out_dir: Path, record_id, policy, ccs, ab, fmp, card,
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _write_api(mf, out_dir: Path, record_id, policy, ccs, ab, fmp, card,
                events, checks, verdicts, disps, truths, threshold) -> dict:
     api = Path(out_dir)
     (api / "events").mkdir(parents=True, exist_ok=True)
@@ -405,54 +410,25 @@ def _write_api(m, out_dir: Path, record_id, policy, ccs, ab, fmp, card,
             "tags": ev["context"]["population_tags"],
         })
 
-    n = len(events)
-    complete = sum(1 for v in verdicts if v["sla_met"])
-    coverage = {"numerator": complete, "denominator": n,
-                "value": round(complete / n, 4) if n else None}
-    adj = [t for t in truths if t["state"] in ("confirmed", "overturned")]
-    conf = sum(1 for t in adj if t["state"] == "confirmed")
-    validity = {"numerator": conf, "denominator": len(adj),
-                "value": round(conf / len(adj), 4) if adj else None}
-    actionable = [v for v in verdicts
-                  if v["required_disposition"]["action"] != "record"]
-    landing = {"numerator": 0, "denominator": len(actionable),
-               "value": 0.0 if actionable else None}
-    evc = None
-    if all(x["value"] is not None for x in (coverage, validity, landing)):
-        evc = round(coverage["value"] * validity["value"] * landing["value"], 4)
+    # Identical metric code to the pilot. If the demonstration is more careful
+    # than the library, the customer is running the careless one.
+    period_start = min(e["occurred_at"] for e in events) if events else now_iso()
+    period_end = max(e["occurred_at"] for e in events) if events else period_start
+    m = periodic.compute(events, verdicts, disps, truths, policy,
+                         period_start, period_end)
 
-    findings = []
-    if validity["value"] is None:
-        findings.append("Confirmed Validity has no denominator. No outcome export "
-                        "is connected. EVC withheld.")
-    if landing["value"] is None:
-        findings.append("Landing has no denominator. No actionable disposition is "
-                        "configured. EVC withheld.")
-    unresolved = [t for t in truths if t["state"] == "unresolved"]
-    if unresolved:
-        findings.append(f"{len(unresolved)} verdicts await a mature outcome window.")
-    for note in m.notes:
-        findings.append(note)
-    if not findings:
-        findings.append("No degradation reported for this period.")
-
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     report = {
         **base("periodic_report"), "report_id": f"rep.{record_id}",
         "system_id": C.SYSTEM_ID, "deployment_ids": [C.DEPLOYMENT_ID],
         "policy_id": policy["policy_id"], "policy_version": policy["policy_version"],
-        "period_start": events[0]["occurred_at"] if events else now,
-        "period_end": events[-1]["occurred_at"] if events else now,
-        "coverage": coverage, "confirmed_validity": validity, "landing": landing,
-        "evc": evc,
-        "truth_debt": {"count": len(unresolved),
-                       "high_risk_count": sum(
-                           1 for t in unresolved if vd[t["event_id"]]["verdict"] == "flag"),
-                       "oldest_seconds": RESOLUTION_HOURS * 3600},
+        "period_start": period_start, "period_end": period_end,
+        "coverage": m["coverage"], "confirmed_validity": m["confirmed_validity"],
+        "landing": m["landing"], "evc": m["evc"], "truth_debt": m["truth_debt"],
         "changes": ["first run of this policy version"],
-        "findings": findings,
-        "recommendation": "continue_with_conditions",
-        "generated_at": now,
+        "metadata": {**m["metadata"], "conditions": m["conditions"]},
+        "findings": periodic.findings(m, extra=list(mf.notes)),
+        "recommendation": m["recommendation"],
+        "generated_at": now_iso(),
         "signed_by": [{"actor_type": "verifier", "actor_ref": "goodhart-monitor",
                        "role": f"verifier {C.VERIFIER_VERSION}"}],
     }
@@ -467,8 +443,9 @@ def _write_api(m, out_dir: Path, record_id, policy, ccs, ab, fmp, card,
                      "site_id": C.SITE, "mode": policy["mode"],
                      "policy_id": policy["policy_id"],
                      "policy_version": policy["policy_version"],
-                     "generated_from": Path(m.path).name,
+                     "generated_from": Path(mf.path).name,
                      "contract_schema": "2.0.0", "threshold": threshold,
                      "rows": rows})
-    return {"events": n, "coverage": coverage, "validity": validity,
-            "landing": landing, "evc": evc, "report": report, "api": str(api)}
+    return {"events": len(events), "coverage": m["coverage"],
+            "validity": m["confirmed_validity"], "landing": m["landing"],
+            "evc": m["evc"], "report": report, "api": str(api)}

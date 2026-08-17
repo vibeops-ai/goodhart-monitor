@@ -358,3 +358,128 @@ def test_screening_uses_the_published_threshold_only():
     c = _signal(_row(0.05, _vitals(HR=110, Temp=38.5, Resp=21, WBC=14.0)))
     assert c["clinical_assessment"] == "clinically_corroborated"
     assert c["metrics"]["sirs_met"] >= 3
+
+
+# ------------------------------------------------------------ period metrics
+def _mk(eid, at, verdict="pass", state=None, strength="reference_label",
+        contract="tc.pass-audit"):
+    ev = {"event_id": eid, "occurred_at": at}
+    vd = {"verdict_id": f"vd.{eid}", "event_id": eid, "verdict": verdict,
+          "sla_met": True, "issued_at": at,
+          "required_disposition": {"action": "record", "target": "ledger",
+                                   "landing_sla_seconds": 60,
+                                   "required_closure_state": "closed"}}
+    tr = None
+    if state:
+        tr = {"event_id": eid, "verdict_id": f"vd.{eid}", "state": state,
+              "source_strength": strength, "truth_contract_id": contract}
+    return ev, vd, tr
+
+
+POLICY = {"dispositions": {
+    "pass": {"action": "record", "target": "ledger", "landing_sla_seconds": 60,
+             "required_closure_state": "closed"},
+    "flag": {"action": "route_review", "target": "queue",
+             "landing_sla_seconds": 3600, "required_closure_state": "reviewed"},
+    "hold": {"action": "escalate", "target": "oncall", "landing_sla_seconds": 3600,
+             "required_closure_state": "acted"},
+    "unable_to_verify": {"action": "record", "target": "ledger",
+                         "landing_sla_seconds": 60,
+                         "required_closure_state": "closed"}}}
+
+
+def test_one_long_stay_cannot_carry_the_headline():
+    """Per patient-hour, a single stay with 50 confirmations swamps everything.
+    Per patient it is one fact."""
+    from goodhart_monitor import periodic
+    evs, vds, trs = [], [], []
+    for i in range(50):                      # one patient, 50 confirmed hours
+        e, v, t = _mk(f"ev.big.{i:03d}", "2026-01-01T00:00:00Z", state="confirmed")
+        evs.append(e); vds.append(v); trs.append(t)
+    for i in range(5):                       # five patients, each overturned
+        e, v, t = _mk(f"ev.p{i}.000", "2026-01-01T00:00:00Z", state="overturned")
+        evs.append(e); vds.append(v); trs.append(t)
+    m = periodic.compute(evs, vds, [], trs, POLICY,
+                         "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m["metadata"]["validity_per_event"]["value"] > 0.9   # flattering
+    assert m["confirmed_validity"]["value"] == pytest.approx(1 / 6, abs=0.01)
+    assert m["metadata"]["concentration"]["largest_share"] > 0.8
+
+
+def test_events_outside_the_period_are_excluded():
+    from goodhart_monitor import periodic
+    inside = _mk("ev.a.001", "2026-01-01T06:00:00Z", state="confirmed")
+    outside = _mk("ev.b.001", "2026-02-01T06:00:00Z", state="confirmed")
+    m = periodic.compute([inside[0], outside[0]], [inside[1], outside[1]], [],
+                         [inside[2], outside[2]], POLICY,
+                         "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m["metadata"]["events_excluded_outside_period"] == 1
+    assert m["confirmed_validity"]["denominator"] == 1
+
+
+def test_self_confirming_contract_is_excluded_from_the_headline():
+    from goodhart_monitor import periodic
+    a = _mk("ev.a.001", "2026-01-01T01:00:00Z", state="confirmed",
+            strength="deterministic_authority", contract="tc.input-condition")
+    b = _mk("ev.b.001", "2026-01-01T01:00:00Z", state="overturned")
+    m = periodic.compute([a[0], b[0]], [a[1], b[1]], [], [a[2], b[2]], POLICY,
+                         "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m["confirmed_validity"]["denominator"] == 1
+    assert m["confirmed_validity"]["value"] == 0.0
+    assert m["metadata"]["validity_decomposition"]["tc.input-condition"][
+        "counts_towards_headline"] is False
+
+
+def test_inconclusive_is_reported_counted_against_us_too():
+    from goodhart_monitor import periodic
+    a = _mk("ev.a.001", "2026-01-01T01:00:00Z", state="confirmed")
+    b = _mk("ev.b.001", "2026-01-01T01:00:00Z", state="inconclusive")
+    m = periodic.compute([a[0], b[0]], [a[1], b[1]], [], [a[2], b[2]], POLICY,
+                         "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m["metadata"]["inconclusive"] == 1
+    assert m["metadata"]["validity_per_event"]["value"] == 1.0
+    assert m["metadata"]["validity_counting_inconclusive_as_missed"]["value"] == 0.5
+
+
+def test_delivered_alone_does_not_land_a_flag():
+    """The gaming lever: an auto-close job must not move Landing."""
+    from goodhart_monitor import periodic
+    e, v, _ = _mk("ev.a.001", "2026-01-01T01:00:00Z", verdict="flag")
+    v["required_disposition"] = POLICY["dispositions"]["flag"]
+    delivered = {"event_id": "ev.a.001", "verdict_id": "vd.ev.a.001",
+                 "state": "delivered", "occurred_at": "2026-01-01T01:00:10Z"}
+    m = periodic.compute([e], [v], [delivered], [], POLICY,
+                         "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m["landing"]["denominator"] == 1
+    assert m["landing"]["numerator"] == 0
+
+    reviewed = dict(delivered, state="reviewed", occurred_at="2026-01-01T01:05:00Z")
+    m2 = periodic.compute([e], [v], [delivered, reviewed], [], POLICY,
+                          "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m2["landing"]["numerator"] == 1
+
+
+def test_closure_after_the_service_level_does_not_count():
+    from goodhart_monitor import periodic
+    e, v, _ = _mk("ev.a.001", "2026-01-01T01:00:00Z", verdict="flag")
+    v["required_disposition"] = POLICY["dispositions"]["flag"]
+    late = {"event_id": "ev.a.001", "verdict_id": "vd.ev.a.001",
+            "state": "reviewed", "occurred_at": "2026-01-01T09:00:00Z"}  # 8h > 1h
+    m = periodic.compute([e], [v], [late], [], POLICY,
+                         "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m["landing"]["numerator"] == 0
+    assert m["metadata"]["landing_closed_late"] == 1
+
+
+def test_the_miss_rate_condition_fires_at_exactly_the_boundary():
+    """`> 0.2` at a measured 0.2 silently dropped the most important condition."""
+    from goodhart_monitor import periodic
+    evs, vds, trs = [], [], []
+    for i in range(10):
+        st = "overturned" if i < 2 else "confirmed"      # exactly 20%
+        e, v, t = _mk(f"ev.p{i}.000", "2026-01-01T01:00:00Z", state=st)
+        evs.append(e); vds.append(v); trs.append(t)
+    m = periodic.compute(evs, vds, [], trs, POLICY,
+                         "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+    assert m["metadata"]["audited_pass_miss_rate"] == 0.2
+    assert any("pass-audit sample" in c["condition"] for c in m["conditions"])

@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from goodhart_monitor import contracts as C  # noqa: E402
+from goodhart_monitor import periodic  # noqa: E402
 from goodhart_monitor.contracts import (Row, base, qsofa, ref, sirs, ts,  # noqa: E402
                                         organ_dysfunction, usable)
 
@@ -324,163 +325,33 @@ def main() -> int:
         }, "truth"))
 
     # ---------------------------------------------------------------- report
-    n_events = len(events)
-    complete = sum(1 for v in verdicts if v["sla_met"])
-    coverage = {"numerator": complete, "denominator": n_events,
-                "value": round(complete / n_events, 4) if n_events else None}
-
-    # Confirmed Validity counts only contracts resolved against an outside
-    # reference. tc.input-condition re-derives the verifier's own arithmetic and
-    # can never be overturned, so counting it inflates the headline with a
-    # tautology. It is reported in the decomposition instead.
-    SELF_CONFIRMING = {"deterministic_authority"}
-    adjudicated = [t for t in truths
-                   if t["state"] in ("confirmed", "overturned")
-                   and t["source_strength"] not in SELF_CONFIRMING]
-    confirmed = sum(1 for t in adjudicated if t["state"] == "confirmed")
-
-    # Rows within a stay are not independent, so the interval resamples
-    # patients. This is the same correction the record applies to AUROC.
-    by_patient: dict[str, list[int]] = {}
-    for t in adjudicated:
-        pid = t["event_id"].split(".")[1]
-        by_patient.setdefault(pid, []).append(1 if t["state"] == "confirmed" else 0)
-    ci_lo = ci_hi = None
-    pats = list(by_patient)
-    if len(pats) >= 10:
-        rs = np.random.default_rng(20260815)
-        draws = []
-        for _ in range(400):
-            pick = rs.choice(len(pats), len(pats), replace=True)
-            vals = [v for i in pick for v in by_patient[pats[i]]]
-            if vals:
-                draws.append(sum(vals) / len(vals))
-        if draws:
-            ci_lo, ci_hi = (round(float(np.percentile(draws, 2.5)), 4),
-                            round(float(np.percentile(draws, 97.5)), 4))
-
-    validity = {"numerator": confirmed, "denominator": len(adjudicated),
-                "value": round(confirmed / len(adjudicated), 4) if adjudicated else None,
-                "confidence_interval_low": ci_lo, "confidence_interval_high": ci_hi}
-
-    # Decomposition, so no single contract can carry the headline unnoticed.
-    decomposition = {}
-    for t in truths:
-        d = decomposition.setdefault(
-            t["truth_contract_id"],
-            {"confirmed": 0, "overturned": 0, "unresolved": 0,
-             "source_strength": t["source_strength"],
-             "counts_towards_headline": t["source_strength"] not in SELF_CONFIRMING})
-        if t["state"] in d:
-            d[t["state"]] += 1
-    for k, d in decomposition.items():
-        adj = d["confirmed"] + d["overturned"]
-        d["rate"] = round(d["confirmed"] / adj, 4) if adj else None
-
-    # Landing counts actionable verdicts only. In monitoring mode with no review
-    # queue connected there are none, so the denominator is zero and the value
-    # is null. It is not 100%.
-    actionable = [v for v in verdicts
-                  if v["required_disposition"]["action"] not in ("record",)]
-    closed = {d["verdict_id"] for d in disps
-              if d["state"] in ("reviewed", "acted", "closed", "overridden")}
-    landed = sum(1 for v in actionable if v["verdict_id"] in closed)
-    landing = {"numerator": landed, "denominator": len(actionable),
-               "value": round(landed / len(actionable), 4) if actionable else None}
-
-    evc = None
-    if all(m["value"] is not None for m in (coverage, validity, landing)):
-        evc = round(coverage["value"] * validity["value"] * landing["value"], 4)
-
-    unresolved = [t for t in truths if t["state"] == "unresolved"]
-    due = [t for t in unresolved]
-
-    # The audited pass sample is the only estimate of what the verifier lets
-    # through. Reporting the sample rate without extrapolating it to the
-    # population leaves the reader to do the multiplication, and they will not.
-    pa = decomposition.get("tc.pass-audit", {})
-    pa_adj = pa.get("confirmed", 0) + pa.get("overturned", 0)
-    miss_rate = (pa.get("overturned", 0) / pa_adj) if pa_adj else None
-    n_pass = sum(1 for v in verdicts if v["verdict"] == "pass")
-    implied = round(n_pass * miss_rate) if miss_rate is not None else None
-    # The recommendation follows from the measurements. A fixed string would be
-    # an opinion wearing a signature block. Conditions are named, owned and dated,
-    # because "continue with conditions" without conditions is just "continue".
-    conditions = []
-    if landing["value"] is not None and landing["value"] < 0.8:
-        conditions.append({
-            "condition": f"Staff {policy['dispositions']['flag']['target']} or change "
-                         f"the disposition route. Verification that does not reach a "
-                         f"person changes nothing.",
-            "owner_role": "clinical_owner", "due": "before the next period"})
-    if miss_rate and miss_rate > 0.2:
-        conditions.append({
-            "condition": f"Raise the pass-audit sample above "
-                         f"{policy['truth_contracts'][-1]['sampling']['rate']:.0%}. "
-                         f"{miss_rate:.0%} of audited passes were overturned and the "
-                         f"population estimate rests on {pa_adj} adjudications.",
-            "owner_role": "clinical_owner", "due": "before the next period"})
-    if (validity["confidence_interval_low"] is not None
-            and validity["confidence_interval_low"] < 0.7):
-        conditions.append({
-            "condition": "Widen the verified window. The patient-clustered interval on "
-                         f"Confirmed Validity is "
-                         f"[{validity['confidence_interval_low']:.2f}, "
-                         f"{validity['confidence_interval_high']:.2f}], too wide to "
-                         f"support a decision.",
-            "owner_role": "chief_health_ai_officer", "due": "next period"})
-
-    recommendation = ("pause" if miss_rate and miss_rate > 0.5
-                      else "re_review" if conditions
-                      else "continue_with_conditions")
+    # Every figure comes from goodhart_monitor.periodic, the same code the
+    # manifest runner uses. A demonstration with better methodology than the
+    # library is not a demonstration of the library.
+    period_start, period_end = ts(0), ts(24 * 7)
+    m = periodic.compute(events, verdicts, disps, truths, policy,
+                         period_start, period_end)
 
     report = validate({
         **base("periodic_report"),
         "report_id": "rep.micu.2026-w33",
         "system_id": C.SYSTEM_ID, "deployment_ids": [C.DEPLOYMENT_ID],
         "policy_id": policy["policy_id"], "policy_version": policy["policy_version"],
-        "period_start": ts(0), "period_end": ts(24 * 7),
-        "coverage": coverage, "confirmed_validity": validity, "landing": landing,
-        "evc": evc,
-        "truth_debt": {"count": len(due),
-                       "high_risk_count": sum(
-                           1 for t in due
-                           if next(v for v in verdicts
-                                   if v["verdict_id"] == t["verdict_id"])["verdict"] == "flag"),
-                       "oldest_seconds": RESOLUTION_HOURS * 3600},
+        "period_start": period_start, "period_end": period_end,
+        "coverage": m["coverage"], "confirmed_validity": m["confirmed_validity"],
+        "landing": m["landing"], "evc": m["evc"],
+        "truth_debt": m["truth_debt"],
         "changes": ["no model, prompt, threshold or policy change in this period"],
-        "metadata": {
-            "validity_decomposition": decomposition,
-            "audited_pass_miss_rate": None if miss_rate is None else round(miss_rate, 4),
-            "implied_missed_in_passes": implied,
-            "distinct_patients": len({t["event_id"].split(".")[1] for t in truths}),
-            "conditions": conditions,
-        },
-        "findings": [
+        "metadata": {**m["metadata"], "conditions": m["conditions"]},
+        "findings": periodic.findings(m, extra=[
             f"Local AUROC {record['sections']['acceptance']['measured_auroc']} against "
-            f"card {record['sections']['acceptance']['card_value']}. Acceptance FAILS in "
-            f"record GHM-0001.",
-            f"Alert precision {record['sections']['work']['row_level_ppv']} against card "
-            f"{record['sections']['work']['card_value']}. Work FAILS.",
-            (f"{len(actionable):,} verdicts routed to "
-             f"{policy['dispositions']['flag']['target']}; {landed} reviewed within "
-             f"the service level. Landing {landing['value']:.0%}, so EVC is "
-             f"{evc:.0%} regardless of how correct the verdicts were."
-             if actionable else
-             "No verdict is actionable under this policy, so Landing has no "
-             "denominator and EVC is withheld."),
+            f"card {record['sections']['acceptance']['card_value']}. Acceptance FAILS "
+            f"in record GHM-0001.",
+            f"Alert precision {record['sections']['work']['row_level_ppv']} against "
+            f"card {record['sections']['work']['card_value']}. Work FAILS.",
             "Card claim M-4 carries no number. No Claim Contract issued.",
-            f"{len(due)} verdicts await a mature outcome window.",
-        ] + ([
-            f"{miss_rate:.1%} of audited passes were overturned. Applied to "
-            f"{n_pass:,} passes that implies roughly {implied:,} missed events in "
-            f"this period."] if miss_rate else []) + [
-            f"Confirmed Validity is measured on {len({t['event_id'].split('.')[1] for t in adjudicated})} "
-            f"patients and the interval resamples patients, not rows.",
-            "tc.input-condition re-derives the verifier's own arithmetic and is "
-            "excluded from Confirmed Validity.",
-        ],
-        "recommendation": recommendation,
+        ]),
+        "recommendation": m["recommendation"],
         "generated_at": ts(24 * 7),
         "signed_by": [{"actor_type": "verifier", "actor_ref": "goodhart-monitor",
                        "role": f"verifier {C.VERIFIER_VERSION}"}],
@@ -579,11 +450,14 @@ def main() -> int:
     detail_kb = sum(f.stat().st_size for f in (api / "events").glob("*.json")) // 1024
     print(f"wrote {api.relative_to(ROOT)}/  index {idx_size // 1024} KB, "
           f"{len(rows)} event documents totalling {detail_kb} KB")
-    print(f"  {n_events} events · {len(checks)} check results · {len(verdicts)} verdicts")
+    print(f"  {len(events)} events · {len(checks)} check results · "
+          f"{len(verdicts)} verdicts")
     print(f"  verdicts {counts}")
     print(f"  truth    {tcounts}")
-    print(f"  coverage {coverage['value']}  validity {validity['value']}  "
-          f"landing {landing['value']}  evc {evc}")
+    print(f"  coverage {m['coverage']['value']}  "
+          f"validity {m['confirmed_validity']['value']} per patient "
+          f"({m['metadata']['validity_per_event']['value']} per event)  "
+          f"landing {m['landing']['value']}  evc {m['evc']}")
     print("  every object validated against contracts/v2 schema 2.0.0")
     return 0
 
