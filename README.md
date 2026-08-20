@@ -88,7 +88,7 @@ verdict can disagree with the policy rather than reverse-engineer it.
       render.py              the read; JSON stays the artifact
       cli.py                 verify · validate
     pilots/physionet_sepsis/ a demonstration, not the product
-    tests/                   84 tests, including the two miscounts that shipped in v0
+    tests/                    tests, including the two miscounts that shipped in v0
 
 ## Corpus and licence
 
